@@ -8,13 +8,17 @@ export OUTDIR="/usera/jonesc/NFS/output/MCGenGAN"
 
 export JOBNAME="CondorTest1"
 
-export LOGFILE=$OUTDIR"/"$JOBNAME"/out.log"
+export JOBDIR=$OUTDIR"/"$JOBNAME
+mkdir -p $JOBDIR
+cd $JOBDIR
 
-rm -rf $OUTDIR"/"$JOBNAME
-mkdir -p $OUTDIR"/"$JOBNAME
+export LOGFILE=$JOBDIR"/out.log"
+
+rm -rf $JOBDIR
+mkdir -p $JOBDIR
 
 # copy scripts into working dir
-cp /usera/jonesc/Projects/MCGenGAN/LHCb/*.py .
+cp ${HOME}/Projects/MCGenGAN/LHCb/{RICH,run_tf}.py .
 
 # Job configuration
 
