@@ -22,16 +22,16 @@ import platform
 from tqdm import tqdm
 import RICH
 import argparse
-   
+
 parser = argparse.ArgumentParser(description='Training Parameters')
 
 parser.add_argument( '--batchmode', action='store_true' )
 parser.set_defaults(batchmode=False)
 
 parser.add_argument( '--name', type=str, default="Test1" )
-parser.add_argument( '--outputdir', type=str, default="/usera/jonesc/NFS/output/MCGenGAN" )
 
-parser.add_argument( '--inputdir', type=str, default="/usera/jonesc/cernbox/Projects/MCGenGAN/data" )
+parser.add_argument( '--outputdir', type=str, default="/usera/jonesc/NFS/output/MCGenGAN" )
+parser.add_argument( '--datadir', type=str, default="/usera/jonesc/cernbox/Projects/MCGenGAN/data" )
 
 parser.add_argument( '--batchsize', type=int, default="1000" )
 parser.add_argument( '--validationsize', type=int, default="100" )
@@ -72,8 +72,8 @@ CRAMER_DIM         = args.cramerdim
 N_LAYERS_CRITIC    = args.ncriticlayers
 N_LAYERS_GENERATOR = args.ngeneratorlayers
 
-LEAK_RATE    = args.leakrate
-DROPOUT_RATE = args.dropoutrate
+LEAK_RATE          = args.leakrate
+DROPOUT_RATE       = args.dropoutrate
 
 # inputs
 train_names = args.inputvars 
@@ -124,7 +124,7 @@ GENERATOR_DIMENSIONS = NOISE_DIMENSIONS + len(train_names)
 # Split data into train and validation samples
 data_raw, val_raw = train_test_split( RICH.createLHCbData( train_names+target_names,  
                                                            maxData, 'KAONS',
-                                                           args.inputdir ),
+                                                           args.datadir ),
                                       random_state = 1234 )
 
 # scale
@@ -233,7 +233,7 @@ with tf.Session(config=tf_config) as sess:
         print("Can't restore parameters: no file with weights")
 
     # Do the iterations
-    its = range(TOTAL_ITERATIONS)
+    its = range(1,TOTAL_ITERATIONS+1)
     if not args.batchmode : its = tqdm(its)
     for i in its :
 
@@ -244,7 +244,7 @@ with tf.Session(config=tf_config) as sess:
         train_writer.add_summary(train_summary, interation)
 
         # Do validation now and then
-        if i % VALIDATION_INTERVAL == 0:
+        if i % VALIDATION_INTERVAL == 0 or i == 1 :
 
             # Directory for plots etc. for this iteratons
             it_dir = its_dir+str( '%06d' % i )+"/"

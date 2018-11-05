@@ -9,13 +9,12 @@ export OUTDIR="/usera/jonesc/NFS/output/MCGenGAN"
 export JOBNAME="CondorTest1"
 
 export JOBDIR=$OUTDIR"/"$JOBNAME
+
+rm -rf $JOBDIR
 mkdir -p $JOBDIR
 cd $JOBDIR
 
 export LOGFILE=$JOBDIR"/out.log"
-
-rm -rf $JOBDIR
-mkdir -p $JOBDIR
 
 # copy scripts into working dir
 cp ${HOME}/Projects/MCGenGAN/LHCb/{RICH,run_tf}.py .
@@ -54,15 +53,10 @@ export VALIDATION_INTERVAL=100
 export INPUTS="NumLongTracks TrackP TrackPt"
 #export INPUTS="NumRich1Hits NumRich2Hits TrackP TrackPt"
 #export INPUTS="NumRich1Hits NumRich2Hits TrackP TrackPt TrackRich1EntryX TrackRich1EntryY TrackRich1ExitX TrackRich1ExitY TrackRich2EntryX TrackRich2EntryY TrackRich2ExitX TrackRich2ExitY"
-#train_names = [ 'NumRich1Hits', 'NumRich2Hits', 'TrackP', 'TrackPt' 
-                #,'NumPVs'
-                #,"NumLongTracks"
-                #,"TrackChi2PerDof", "TrackNumDof"
-                #,'TrackVertexX', 'TrackVertexY', 'TrackVertexZ' 
-                #,'TrackRich1EntryX', 'TrackRich1EntryY' 
-                #,'TrackRich1ExitX', 'TrackRich1ExitY'
-                #,'TrackRich2EntryX', 'TrackRich2EntryY'
-                #,'TrackRich2ExitX', 'TrackRich2ExitY' 
+
+#,'NumPVs'
+#,"TrackChi2PerDof", "TrackNumDof"
+#,'TrackVertexX', 'TrackVertexY', 'TrackVertexZ' 
 
 #export OUTPUTS="RichDLLk"
 #export OUTPUTS="RichDLLe RichDLLmu RichDLLk RichDLLp RichDLLd RichDLLbt"
@@ -70,5 +64,8 @@ export OUTPUTS="RichDLLe RichDLLk RichDLLp RichDLLbt"
 
 # run the job
 ./run_tf.py --batchmode --name $JOBNAME --outputdir=$OUTDIR --datareadsize $MAXDATA --batchsize $BATCH_SIZE --validationsize $VALIDATION_SIZE --niterations $TOTAL_ITERATIONS --validationinterval $VALIDATION_INTERVAL --inputvars $INPUTS --outputvars $OUTPUTS 2>&1 | cat > $LOGFILE
+
+# clean up
+rm -r __pycache__ RICH.py run_tf.py
 
 exit 0

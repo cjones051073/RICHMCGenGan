@@ -9,10 +9,10 @@ environment = CONDOR_ID=$(Cluster).$(Process)
 
 # Requirements
 # limited number of slots for POOL desktops (#1 and #3 only)
-Requirements = ( Arch == "X86_64" && OSTYPE == "CC7" && ( ( POOL == "GENERAL" && ( Name == strcat("slot1@",Machine) || Name == strcat("slot3@",Machine) ) ) || POOL == "GEN_FARM" ) )
+Requirements = ( Arch == "X86_64" && OSTYPE == "CC7" && ( ( POOL == "GENERAL" && Name == strcat("slot1@",Machine) ) || POOL == "GEN_FARM" ) )
 
 # Rank hosts according to floating point speed
-Rank         = kflops
+Rank = kflops
 
 # Memory requirement (in MB)
 request_memory = 1000
