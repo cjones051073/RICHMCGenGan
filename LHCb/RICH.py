@@ -13,7 +13,7 @@ def convertCVStoHDF( types = ['PIONS','KAONS'] ) :
 
 # load the LHCb data
 def createLHCbData( names, maxData = -1, type = 'KAONS', 
-                    datapath = '/usera/jonesc/NFS/data/MCGenGAN',
+                    datapath = '/usera/jonesc/cernbox/Projects/MCGenGAN/data',
                     dtype = np.float32 ):
 
     datafile = datapath+'/PID-train-data-'+type +'.hdf'

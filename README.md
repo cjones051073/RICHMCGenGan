@@ -2,8 +2,7 @@
 
 Setup :-
 
-> scl enable rh-python36 bash
-
+> source /opt/rh/rh-python36/enable 
 > source /usera/jonesc/VirtualEnvs/TensorFlow/bin/activate
 
 Useful links :-

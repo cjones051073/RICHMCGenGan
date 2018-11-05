@@ -1,0 +1,33 @@
+
+# Condor environment
+Universe                = vanilla
+getenv                  = true
+copy_to_spool           = true
+should_transfer_files   = YES
+when_to_transfer_output = ON_EXIT_OR_EVICT
+environment = CONDOR_ID=$(Cluster).$(Process)
+
+# Requirements
+# limited number of slots for POOL desktops (#1 and #3 only)
+Requirements = ( Arch == "X86_64" && OSTYPE == "CC7" && ( ( POOL == "GENERAL" && ( Name == strcat("slot1@",Machine) || Name == strcat("slot3@",Machine) ) ) || POOL == "GEN_FARM" ) )
+
+# Rank hosts according to floating point speed
+Rank         = kflops
+
+# Memory requirement (in MB)
+request_memory = 1000
+
+# Condor Output
+output = $ENV(HOME)/CondorLogs/out.$(Process)
+error  = $ENV(HOME)/CondorLogs/err.$(Process)
+Log    = $ENV(HOME)/CondorLogs/log.$(Process)
+
+# =============================================================================
+# Submit the job script
+# =============================================================================
+
+Executable       = condor.sh
+#Arguments        = $(Process)
+
+# Submit the number of jobs required
+Queue 1

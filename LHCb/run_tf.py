@@ -11,21 +11,26 @@ from keras.layers.advanced_activations import LeakyReLU
 import pandas as pd
 #import seaborn as sns
 import numpy as np
+import matplotlib as mpl
+mpl.use('Agg')
 import matplotlib.pyplot as plt
-import os, shutil
+import os, shutil, sys
 from IPython.display import clear_output
 #import scipy
-#import platform
+import platform
 from tqdm import tqdm
 import RICH
 import argparse
    
 parser = argparse.ArgumentParser(description='Training Parameters')
 
+parser.add_argument( '--batchmode', action='store_true' )
+parser.set_defaults(batchmode=False)
+
 parser.add_argument( '--name', type=str, default="Test1" )
 parser.add_argument( '--outputdir', type=str, default="/usera/jonesc/NFS/output/MCGenGAN" )
 
-parser.add_argument( '--inputdir', type=str, default="/usera/jonesc/NFS/output/MCGenGAN" )
+parser.add_argument( '--inputdir', type=str, default="/usera/jonesc/cernbox/Projects/MCGenGAN/data" )
 
 parser.add_argument( '--batchsize', type=int, default="100" )
 parser.add_argument( '--validationsize', type=int, default="100" )
@@ -40,6 +45,14 @@ parser.add_argument( '--ngeneratorlayers', type=int, default="10" )
 
 parser.add_argument( '--leakrate', type=float, default="0.0" )
 parser.add_argument( '--dropoutrate', type=float, default="0.0" )
+parser.add_argument( '--cramerdim', type=int, default="256" )
+
+parser.add_argument( '--inputvars', type=str, nargs='+',
+                     default = ['NumRich1Hits','NumRich2Hits','TrackP','TrackPt'] )
+
+parser.add_argument( '--outputvars', type=str, nargs='+',
+                     default = [ 'RichDLLe', 'RichDLLmu', 'RichDLLk', 
+                                 'RichDLLp', 'RichDLLd', 'RichDLLbt' ] )
 
 args = parser.parse_args()
 
@@ -54,33 +67,23 @@ TOTAL_ITERATIONS    = args.niterations
 VALIDATION_INTERVAL = args.validationinterval
 maxData             = args.datareadsize
 
-# Standard large job
-#maxData                 = -1
-#BATCH_SIZE              = int(5e4)
-#VALIDATION_SIZE         = int(3e5)
-#TOTAL_ITERATIONS        = int(1e4)
-#VALIDATION_INTERVAL     = 100
-
-# medium job
-#maxData                 = -1
-#BATCH_SIZE              = int(1e3)
-#VALIDATION_SIZE         = int(1e2)
-#TOTAL_ITERATIONS        = int(1e3)
-#VALIDATION_INTERVAL     = 100
-
-# tiny test job
-#maxData                 = int(1e3)
-#BATCH_SIZE              = int(1e2)
-#VALIDATION_SIZE         = int(1e2)
-#TOTAL_ITERATIONS        = int(1e2)
-#VALIDATION_INTERVAL     = 10
-
-CRAMER_DIM         = 256
+CRAMER_DIM         = args.cramerdim
 N_LAYERS_CRITIC    = args.ncriticlayers
 N_LAYERS_GENERATOR = args.ngeneratorlayers
 
 LEAK_RATE    = args.leakrate
 DROPOUT_RATE = args.dropoutrate
+
+# Total input dimensions of generator (including noise)
+GENERATOR_DIMENSIONS = 64
+
+# inputs
+train_names = args.inputvars 
+
+# names for target data
+target_names = args.outputvars 
+
+#sys.exit()
 
 # functor to give the number of training runs per iteration
 CRITIC_ITERATIONS_CONST = 15
@@ -88,10 +91,13 @@ CRITIC_ITERATIONS_VAR   = 0
 critic_policy = lambda i: (
     CRITIC_ITERATIONS_CONST + (CRITIC_ITERATIONS_VAR * (TOTAL_ITERATIONS - i)) // TOTAL_ITERATIONS)
 
-plots_dir = args.outputdir+"/"+MODEL_NAME+"/"+str(TOTAL_ITERATIONS)+"-its/"
+print( "Running on", platform.node() )
+
+plots_dir = args.outputdir+"/"+MODEL_NAME+"/"
 print ( "Output dir", plots_dir )
-if     os.path.exists(plots_dir) : shutil.rmtree(plots_dir) 
+#if     os.path.exists(plots_dir) : shutil.rmtree(plots_dir) 
 if not os.path.exists(plots_dir) : os.makedirs(plots_dir)
+
 LOGDIR = plots_dir
 
 # To make sure that we can reproduce the experiment and get the same results
@@ -104,32 +110,15 @@ tf_config = tf.ConfigProto()
 #tf_config.inter_op_parallelism_threads = 16
 tf.reset_default_graph()
 
-# Total input dimensions of generator (including noise)
-GENERATOR_DIMENSIONS = 64
-
-# names of variables to extract for training data
-train_names = [ 'NumRich1Hits', 'NumRich2Hits', 'TrackP', 'TrackPt' 
-                #,'NumPVs'
-                #,"NumLongTracks"
-                #,"TrackChi2PerDof", "TrackNumDof"
-                #,'TrackVertexX', 'TrackVertexY', 'TrackVertexZ' 
-                #,'TrackRich1EntryX', 'TrackRich1EntryY' 
-                #,'TrackRich1ExitX', 'TrackRich1ExitY'
-                #,'TrackRich2EntryX', 'TrackRich2EntryY'
-                #,'TrackRich2ExitX', 'TrackRich2ExitY' 
-]
-# Train on random input only
-#train_names = [ ]
-
-# names for target data
-target_names = [ 'RichDLLe', 'RichDLLmu', 'RichDLLk', 'RichDLLp', 'RichDLLd', 'RichDLLbt' ]
+# # outputs from generator
 output_dim = len(target_names)
 
 # amount of noise to add to training data
 NOISE_DIMENSIONS = GENERATOR_DIMENSIONS - len(train_names)
 
 # Split data into train and validation samples
-data_raw, val_raw = train_test_split( RICH.createLHCbData( train_names+target_names,  maxData, 'KAONS' ),
+data_raw, val_raw = train_test_split( RICH.createLHCbData( train_names+target_names,  maxData, 'KAONS',
+                                                           args.inputdir ),
                                       random_state = 1234 )
 
 # scale
@@ -238,7 +227,9 @@ with tf.Session(config=tf_config) as sess:
         print("Can't restore parameters: no file with weights")
 
     # Do the iterations
-    for i in tqdm(range(TOTAL_ITERATIONS)):
+    its = range(TOTAL_ITERATIONS)
+    if not args.batchmode : its = tqdm(its)
+    for i in its :
 
         for j in range(critic_policy(i)) :
             sess.run(critic_train_op)
@@ -263,29 +254,46 @@ with tf.Session(config=tf_config) as sess:
             test_writer.add_summary(test_summary, interation)
             weights_saver.save(sess, MODEL_WEIGHTS_FILE)
 
-            # normalised generated DLLs
-            ix,iy    = RICH.plotDimensions(output_dim)
-            fig,axes = plt.subplots(ix, iy, figsize=(15, 15))
-            for INDEX, ax in zip( range(0,output_dim), axes.flatten() ):
-                _, bins, _ = ax.hist(validation_np[target_names].values[:, INDEX],
-                                     bins=100, label="data", density=True)
-                ax.hist(test_generated[:, INDEX], bins=bins, label="generated", alpha=0.5, density=True)
-                ax.legend()
-                ax.set_title(target_names[INDEX])
+            # plot dimensions
+            ix,iy = RICH.plotDimensions(output_dim)
+            
+            # Normalised output vars
+            plt.figure(figsize=(18,15))
+            i = 0
+            for INDEX in range(0,output_dim) :
+                plt.subplot(ix, iy, i+1)
+                data =  [ validation_np[target_names].values[:, INDEX],
+                          test_generated[:, INDEX] ] 
+                plt.hist( data, bins=100, density=True, label=['Target','Generated'] ) 
+                plt.title('Normalised Output')
+                plt.legend()
             plt.savefig(it_dir+"dlls-norm.png")
             plt.close()
-            
+    
             # raw generated DLLs
-            fig,axes = plt.subplots(ix, iy, figsize=(15, 15))
+            plt.figure(figsize=(18,15))
+            i = 0
             test_generated_raw = dll_scaler.inverse_transform( test_generated )
-            for INDEX, ax in zip( range(0,output_dim), axes.flatten() ):
-                _, bins, _ = ax.hist(validation_np_raw[target_names].values[:, INDEX],
-                                     bins=100, label="data", density=True)
-                ax.hist(test_generated_raw[:, INDEX], bins=bins, label="generated", alpha=0.5, density=True)
-                ax.legend()
-                ax.set_title(target_names[INDEX])
-            plt.savefig(it_dir+"dlls-raw.png")
+            for INDEX in range(0,output_dim) :
+                plt.subplot(ix, iy, i+1)
+                data =  [ validation_np_raw[target_names].values[:, INDEX],
+                          test_generated_raw[:, INDEX] ] 
+                plt.hist( data, bins=100, density=True, label=['Target','Generated'] ) 
+                plt.title('Normalised Output')
+                plt.legend()
+            plt.savefig(it_dir+"dlls-norm.png")
             plt.close()
+
+            #fig,axes = plt.subplots(ix, iy, figsize=(15, 15))
+            #test_generated_raw = dll_scaler.inverse_transform( test_generated )
+            #for INDEX, ax in zip( range(0,output_dim), axes.flatten() ):
+            #    _, bins, _ = ax.hist(validation_np_raw[target_names].values[:, INDEX],
+            #                         bins=100, label="data", density=True)
+            #    ax.hist(test_generated_raw[:, INDEX], bins=bins, label="generated", alpha=0.5, density=True)
+            #    ax.legend()
+            #    ax.set_title(target_names[INDEX])
+            #plt.savefig(it_dir+"dlls-raw.png")
+            #plt.close()
 
             # DLL correlations
             RICH.outputCorrs( "correlations", test_generated, validation_np[target_names].values,
