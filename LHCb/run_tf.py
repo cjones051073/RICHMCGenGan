@@ -1,4 +1,4 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import QuantileTransformer
@@ -8,6 +8,7 @@ import keras.layers as ll
 from keras.models import Sequential
 from keras.layers.core import Dense, Dropout
 from keras.layers.advanced_activations import LeakyReLU
+from keras import initializers
 import pandas as pd
 #import seaborn as sns
 import numpy as np
@@ -32,13 +33,13 @@ parser.add_argument( '--outputdir', type=str, default="/usera/jonesc/NFS/output/
 
 parser.add_argument( '--inputdir', type=str, default="/usera/jonesc/cernbox/Projects/MCGenGAN/data" )
 
-parser.add_argument( '--batchsize', type=int, default="100" )
+parser.add_argument( '--batchsize', type=int, default="1000" )
 parser.add_argument( '--validationsize', type=int, default="100" )
 parser.add_argument( '--validationinterval', type=int, default="10" )
 
 parser.add_argument( '--niterations', type=int, default="100" )
 
-parser.add_argument( '--datareadsize', type=int, default="1000" )
+parser.add_argument( '--datareadsize', type=int, default="10000" )
 
 parser.add_argument( '--ncriticlayers', type=int, default="10" )
 parser.add_argument( '--ngeneratorlayers', type=int, default="10" )
@@ -74,9 +75,6 @@ N_LAYERS_GENERATOR = args.ngeneratorlayers
 LEAK_RATE    = args.leakrate
 DROPOUT_RATE = args.dropoutrate
 
-# Total input dimensions of generator (including noise)
-GENERATOR_DIMENSIONS = 64
-
 # inputs
 train_names = args.inputvars 
 
@@ -95,10 +93,14 @@ print( "Running on", platform.node() )
 
 plots_dir = args.outputdir+"/"+MODEL_NAME+"/"
 print ( "Output dir", plots_dir )
-#if     os.path.exists(plots_dir) : shutil.rmtree(plots_dir) 
 if not os.path.exists(plots_dir) : os.makedirs(plots_dir)
 
-LOGDIR = plots_dir
+weights_dir = plots_dir+"weights/"
+its_dir     = plots_dir+"iteration/"
+summary_dir = plots_dir+"summary/"
+model_dir   = plots_dir+"exported_model/"
+for d in [ weights_dir, its_dir, summary_dir, model_dir ] :
+    if os.path.exists(d) : shutil.rmtree(d) 
 
 # To make sure that we can reproduce the experiment and get the same results
 np.random.seed(1234)
@@ -114,10 +116,14 @@ tf.reset_default_graph()
 output_dim = len(target_names)
 
 # amount of noise to add to training data
-NOISE_DIMENSIONS = GENERATOR_DIMENSIONS - len(train_names)
+NOISE_DIMENSIONS = 64
+
+# Total input dimensions of generator (including noise)
+GENERATOR_DIMENSIONS = NOISE_DIMENSIONS + len(train_names)
 
 # Split data into train and validation samples
-data_raw, val_raw = train_test_split( RICH.createLHCbData( train_names+target_names,  maxData, 'KAONS',
+data_raw, val_raw = train_test_split( RICH.createLHCbData( train_names+target_names,  
+                                                           maxData, 'KAONS',
                                                            args.inputdir ),
                                       random_state = 1234 )
 
@@ -141,7 +147,7 @@ print( "Building Critic, #inputs=", n_input_layer )
 critic = keras.models.Sequential()
 critic.add( ll.InputLayer( [ n_input_layer ] ) )
 for i in range(0,N_LAYERS_CRITIC) :
-    critic.add( ll.Dense(128, activation='relu') )
+    critic.add( ll.Dense(128, activation='relu' ) )
     if LEAK_RATE    > 0 : critic.add( ll.LeakyReLU(LEAK_RATE) )
     if DROPOUT_RATE > 0 : critic.add( ll.Dropout(DROPOUT_RATE) )
 critic.add( ll.Dense(CRAMER_DIM) )
@@ -151,7 +157,7 @@ print( "Building Generator, #inputs=", GENERATOR_DIMENSIONS )
 generator = keras.models.Sequential()
 generator.add( ll.InputLayer( [GENERATOR_DIMENSIONS] ) )
 for i in range(0,N_LAYERS_GENERATOR) :
-    generator.add( ll.Dense(128, activation='relu') )
+    generator.add( ll.Dense(128, activation='relu' ) )
     if LEAK_RATE    > 0 : generator.add( ll.LeakyReLU(LEAK_RATE) )
     if DROPOUT_RATE > 0 : generator.add( ll.Dropout(DROPOUT_RATE) )
 generator.add( ll.Dense(output_dim) )
@@ -211,9 +217,9 @@ var_init      = tf.global_variables_initializer()
 weights_saver = tf.train.Saver()
 tf.get_default_graph().finalize()
 
-MODEL_WEIGHTS_FILE      = plots_dir+"weights/%s.ckpt" % MODEL_NAME
-train_writer            = tf.summary.FileWriter(os.path.join(LOGDIR, "summary", "train"))
-test_writer             = tf.summary.FileWriter(os.path.join(LOGDIR, "summary", "test"))
+MODEL_WEIGHTS_FILE = weights_dir+"%s.ckpt" % MODEL_NAME
+train_writer       = tf.summary.FileWriter(os.path.join(summary_dir, "train"))
+test_writer        = tf.summary.FileWriter(os.path.join(summary_dir, "test"))
 
 with tf.Session(config=tf_config) as sess:
 
@@ -241,7 +247,7 @@ with tf.Session(config=tf_config) as sess:
         if i % VALIDATION_INTERVAL == 0:
 
             # Directory for plots etc. for this iteratons
-            it_dir = plots_dir+"iteration/"+str( '%06d' % i )+"/"
+            it_dir = its_dir+str( '%06d' % i )+"/"
             if not os.path.exists(it_dir) : os.makedirs(it_dir)
 
             clear_output(False)
@@ -259,29 +265,33 @@ with tf.Session(config=tf_config) as sess:
             
             # Normalised output vars
             plt.figure(figsize=(18,15))
-            i = 0
             for INDEX in range(0,output_dim) :
-                plt.subplot(ix, iy, i+1)
+                plt.subplot(ix, iy, INDEX+1)
                 data =  [ validation_np[target_names].values[:, INDEX],
                           test_generated[:, INDEX] ] 
-                plt.hist( data, bins=100, density=True, label=['Target','Generated'] ) 
-                plt.title('Normalised Output')
+                plt.hist( data, bins=100, alpha=0.5, density=True, 
+                          histtype='stepfilled', label=['Target','Generated'] ) 
+                plt.grid(True)
+                plt.title("Normalised "+target_names[INDEX])
                 plt.legend()
+            plt.tight_layout()
             plt.savefig(it_dir+"dlls-norm.png")
             plt.close()
     
             # raw generated DLLs
             plt.figure(figsize=(18,15))
-            i = 0
             test_generated_raw = dll_scaler.inverse_transform( test_generated )
             for INDEX in range(0,output_dim) :
-                plt.subplot(ix, iy, i+1)
+                plt.subplot(ix, iy, INDEX+1)
                 data =  [ validation_np_raw[target_names].values[:, INDEX],
                           test_generated_raw[:, INDEX] ] 
-                plt.hist( data, bins=100, density=True, label=['Target','Generated'] ) 
-                plt.title('Normalised Output')
+                plt.hist( data, bins=100, alpha=0.5, density=True, 
+                          histtype='stepfilled', label=['Target','Generated'] ) 
+                plt.grid(True)
+                plt.title("Raw "+target_names[INDEX])
                 plt.legend()
-            plt.savefig(it_dir+"dlls-norm.png")
+            plt.tight_layout()
+            plt.savefig(it_dir+"dlls-raw.png")
             plt.close()
 
             #fig,axes = plt.subplots(ix, iy, figsize=(15, 15))
@@ -304,8 +314,7 @@ with tf.Session(config=tf_config) as sess:
     sess.run(var_init)
     weights_saver.restore(sess, MODEL_WEIGHTS_FILE)
     sess.graph._unsafe_unfinalize()
-    tf.saved_model.simple_save(sess,
-                               os.path.join(plots_dir,"exported_model"),
+    tf.saved_model.simple_save(sess, model_dir,
                                inputs={"x": train_x_1}, outputs={"dlls": generated_y_1})
     tf.get_default_graph().finalize()
     

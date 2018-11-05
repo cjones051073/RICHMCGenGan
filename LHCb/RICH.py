@@ -59,7 +59,7 @@ def plots( title, data, dir = 'plots/' ):
         for col in data.columns :
             #print( "Plotting", i, names[i] )
             plt.subplot(ix, iy, i+1)
-            plt.hist( data[col], 50, histtype='bar' )
+            plt.hist( data[col], 100, histtype='bar' )
             plt.grid(True)
             plt.title( col )
             i = i + 1
