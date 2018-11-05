@@ -1,0 +1,34 @@
+
+# Long Tracks Only
+TrackType == 3
+
+# physics tracks only
+!HasMC || MCVertexType==1 || MCVertexType==2
+
+# Vertex cuts
+abs(TrackVertexX) < 0.2 
+abs(TrackVertexY) < 0.2 
+
+# Has RICH DLL values
+RichDLLe  > -900
+RichDLLmu > -900
+RichDLLk  > -900
+RichDLLp  > -900
+RichDLLd  > -900
+RichDLLbt > -900
+
+# RICH thresholds
+RichAbovePiThres > 0.5
+
+# Only take MC types we are looking to simulate
+#abs(MCParticleType) == 0 || abs(MCParticleType) == 11 || abs(MCParticleType) == 13 || abs(MCParticleType) == 211 || abs(MCParticleType) == 321 || abs(MCParticleType) == 2212 || abs(MCParticleType) == 1000010020
+
+
+# Electrons only
+#abs(MCParticleType) == 11
+# Muons only
+#abs(MCParticleType) == 13
+# Pion only
+abs(MCParticleType) == 211
+# kaon only
+#abs(MCParticleType) == 321

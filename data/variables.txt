@@ -1,0 +1,45 @@
+
+RunNumber ; I ; RunNumber
+EventNumber ; I ; EventNumber
+
+MCPDGCode ; I ; MCParticleType
+MCVirtualMass ; D ; MCVirtualMass
+
+MCID ; I ; ( !HasMC ? 0 : abs(MCParticleType)==11 ? 1 : abs(MCParticleType)==13 ? 2 : abs(MCParticleType)==211 ? 3 : abs(MCParticleType)==321 ? 4 : abs(MCParticleType)==2212 ? 5 : 6 )
+
+NumPVs ; I ; NumPVs
+NumLongTracks ; I ; NumLongTracks
+NumRich1Hits ; I ; min( NumRich1Hits, 15000 )
+NumRich2Hits ; I ; min( NumRich2Hits, 10000 )
+
+TrackP ; D ; min( TrackP, 2000000 )
+TrackPt ; D ; min( TrackPt, 250000 )
+TrackChi2PerDof ; D ; TrackChi2PerDof
+TrackNumDof ; I ; TrackNumDof
+
+TrackVertexX ; D ; max( -200, min( 1000*TrackVertexX, 200 ) )
+TrackVertexY ; D ; max( -200, min( 1000*TrackVertexY, 200 ) )
+TrackVertexZ ; D ; max( -400, min(      TrackVertexZ, 400 ) )
+
+TrackRich1EntryX ; D ; max( -500, min( TrackRich1EntryX, 500 ) )
+TrackRich1EntryY ; D ; max( -500, min( TrackRich1EntryY, 500 ) )
+#TrackRich1EntryZ ; D ; TrackRich1EntryZ
+
+TrackRich1ExitX ; D ; max( -1000, min( TrackRich1ExitX, 1000 ) )
+TrackRich1ExitY ; D ; max( -1000, min( TrackRich1ExitY, 1000 ) )
+#TrackRich1ExitZ ; D ; TrackRich1ExitZ
+
+TrackRich2EntryX ; D ; max( -4000, min( TrackRich2EntryX, 4000 ) )
+TrackRich2EntryY ; D ; max( -4000, min( TrackRich2EntryY, 4000 ) )
+#TrackRich2EntryZ ; D ; TrackRich2EntryZ
+
+TrackRich2ExitX ; D ; max( -7000, min( TrackRich2ExitX, 7000 ) )
+TrackRich2ExitY ; D ; max( -5000, min( TrackRich2ExitY, 5000 ) )
+#TrackRich2ExitZ ; D ; TrackRich2ExitZ
+
+RichDLLe ; D ; RichDLLe
+RichDLLmu ; D ; RichDLLmu
+RichDLLk ; D ; RichDLLk
+RichDLLp ; D ; RichDLLp
+RichDLLd ; D ; RichDLLd
+RichDLLbt ; D ; RichDLLbt
