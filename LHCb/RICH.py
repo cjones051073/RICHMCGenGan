@@ -12,9 +12,11 @@ def convertCVStoHDF( types = ['PIONS','KAONS'] ) :
         data.to_hdf( datafile+'.hdf', type, mode='w', complib='blosc')
 
 # load the LHCb data
-def createLHCbData( names, maxData = -1, type = 'KAONS', dtype = np.float32 ):
+def createLHCbData( names, maxData = -1, type = 'KAONS', 
+                    datapath = '/usera/jonesc/NFS/data/MCGenGAN',
+                    dtype = np.float32 ):
 
-    datafile = 'data/PID-train-data-'+type +'.hdf'
+    datafile = datapath+'/PID-train-data-'+type +'.hdf'
     
     print( "Loading the data from", datafile )
     data = pd.read_hdf( datafile, type )

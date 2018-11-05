@@ -14,25 +14,45 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os, shutil
 from IPython.display import clear_output
-import scipy
-import platform
+#import scipy
+#import platform
 from tqdm import tqdm
-   
 import RICH
+import argparse
+   
+parser = argparse.ArgumentParser(description='Training Parameters')
 
-# To make sure that we can reproduce the experiment and get the same results
-np.random.seed(1234)
+parser.add_argument( '--name', type=str, default="Test1" )
+parser.add_argument( '--outputdir', type=str, default="/usera/jonesc/NFS/output/MCGenGAN" )
 
-tf_config = tf.ConfigProto()
-#tf_config.gpu_options = tf.GPUOptions(allow_growth=True)
-#tf_config.log_device_placement=True
-#tf_config.intra_op_parallelism_threads = 16
-#tf_config.inter_op_parallelism_threads = 16
-tf.reset_default_graph()
+parser.add_argument( '--inputdir', type=str, default="/usera/jonesc/NFS/output/MCGenGAN" )
+
+parser.add_argument( '--batchsize', type=int, default="100" )
+parser.add_argument( '--validationsize', type=int, default="100" )
+parser.add_argument( '--validationinterval', type=int, default="10" )
+
+parser.add_argument( '--niterations', type=int, default="100" )
+
+parser.add_argument( '--datareadsize', type=int, default="1000" )
+
+parser.add_argument( '--ncriticlayers', type=int, default="10" )
+parser.add_argument( '--ngeneratorlayers', type=int, default="10" )
+
+parser.add_argument( '--leakrate', type=float, default="0.0" )
+parser.add_argument( '--dropoutrate', type=float, default="0.0" )
+
+args = parser.parse_args()
+
+print(args)
 
 # Job size parameters
 
-MODEL_NAME = "Cramer_Test2"
+MODEL_NAME          = args.name
+BATCH_SIZE          = args.batchsize
+VALIDATION_SIZE     = args.validationsize
+TOTAL_ITERATIONS    = args.niterations
+VALIDATION_INTERVAL = args.validationinterval
+maxData             = args.datareadsize
 
 # Standard large job
 #maxData                 = -1
@@ -49,32 +69,18 @@ MODEL_NAME = "Cramer_Test2"
 #VALIDATION_INTERVAL     = 100
 
 # tiny test job
-maxData                 = int(1e3)
-BATCH_SIZE              = int(1e2)
-VALIDATION_SIZE         = int(1e2)
-TOTAL_ITERATIONS        = int(1e2)
-VALIDATION_INTERVAL     = 10
-
-print ( "BATCH SIZE         ", BATCH_SIZE )
-print ( "VALIDATION SIZE    ", VALIDATION_SIZE )
-print ( "# ITERATONS        ", TOTAL_ITERATIONS )
-print ( "VALIDATION INTERVAL", VALIDATION_INTERVAL )
+#maxData                 = int(1e3)
+#BATCH_SIZE              = int(1e2)
+#VALIDATION_SIZE         = int(1e2)
+#TOTAL_ITERATIONS        = int(1e2)
+#VALIDATION_INTERVAL     = 10
 
 CRAMER_DIM         = 256
-N_LAYERS_CRITIC    = 10
-N_LAYERS_GENERATOR = 10
+N_LAYERS_CRITIC    = args.ncriticlayers
+N_LAYERS_GENERATOR = args.ngeneratorlayers
 
-print ( "CRITIC LAYERS      ", N_LAYERS_CRITIC )
-print ( "GENERATOR LAYERS   ", N_LAYERS_GENERATOR )
-print ( "CRAMER OUTPUT DIM  ", CRAMER_DIM )
-
-#LEAK_RATE    = 0.2
-#DROPOUT_RATE = 0.3
-LEAK_RATE    = 0
-DROPOUT_RATE = 0
-
-print ( "LEAK RATE          ", LEAK_RATE )
-print ( "DROPOUT RATE       ", DROPOUT_RATE )
+LEAK_RATE    = args.leakrate
+DROPOUT_RATE = args.dropoutrate
 
 # functor to give the number of training runs per iteration
 CRITIC_ITERATIONS_CONST = 15
@@ -82,10 +88,21 @@ CRITIC_ITERATIONS_VAR   = 0
 critic_policy = lambda i: (
     CRITIC_ITERATIONS_CONST + (CRITIC_ITERATIONS_VAR * (TOTAL_ITERATIONS - i)) // TOTAL_ITERATIONS)
 
-plots_dir = "plots/"+platform.node()+"/Tf/"+MODEL_NAME+"/"+str(TOTAL_ITERATIONS)+"-its/"
+plots_dir = args.outputdir+"/"+MODEL_NAME+"/"+str(TOTAL_ITERATIONS)+"-its/"
+print ( "Output dir", plots_dir )
 if     os.path.exists(plots_dir) : shutil.rmtree(plots_dir) 
 if not os.path.exists(plots_dir) : os.makedirs(plots_dir)
 LOGDIR = plots_dir
+
+# To make sure that we can reproduce the experiment and get the same results
+np.random.seed(1234)
+
+tf_config = tf.ConfigProto()
+#tf_config.gpu_options = tf.GPUOptions(allow_growth=True)
+#tf_config.log_device_placement=True
+#tf_config.intra_op_parallelism_threads = 16
+#tf_config.inter_op_parallelism_threads = 16
+tf.reset_default_graph()
 
 # Total input dimensions of generator (including noise)
 GENERATOR_DIMENSIONS = 64
