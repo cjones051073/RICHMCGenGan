@@ -6,7 +6,7 @@ source /usera/jonesc/VirtualEnvs/TensorFlow/bin/activate
 
 export OUTDIR="/usera/jonesc/NFS/output/MCGenGAN"
 
-export JOBNAME="CondorTest1"
+export JOBNAME="YandexReplicate"
 
 export JOBDIR=$OUTDIR"/"$JOBNAME
 
@@ -37,10 +37,10 @@ cp ${HOME}/Projects/MCGenGAN/LHCb/{RICH,run_tf}.py .
 
 # medium job
 export MAXDATA=-1
-export BATCH_SIZE=1000
-export VALIDATION_SIZE=100
+export BATCH_SIZE=5000
+export VALIDATION_SIZE=10000
 export TOTAL_ITERATIONS=1000
-export VALIDATION_INTERVAL=100
+export VALIDATION_INTERVAL=50
 
 # long job
 #export MAXDATA=-1
