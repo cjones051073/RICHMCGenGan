@@ -4,7 +4,26 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-def createRICHModel() :
+def critic_policy(TOTAL_ITERATIONS):
+    # functor to give the number of training runs per iteration
+    CRITIC_ITERATIONS_CONST = 15
+    CRITIC_ITERATIONS_VAR   = 0
+    critic_policy = lambda i: (
+        CRITIC_ITERATIONS_CONST + (CRITIC_ITERATIONS_VAR * (TOTAL_ITERATIONS - i)) // TOTAL_ITERATIONS)
+    return critic_policy
+
+def outputDirs( dir, clear = True ) :
+    
+    if clear and os.path.exists(dir) : shutil.rmtree(dir) 
+    if not os.path.exists(dir) : os.makedirs(dir)
+    dirs = { "weights"    : dir+"weights/",
+             "iterations" : dir+"iteration/",
+             "summary"    : dir+"summary/",
+             "model"      : dir+"exported_model/",
+             "checkpoint" : dir+"checkpoint/" }
+    return dirs
+
+def createRICHModel( g_step = None ) :
 
     import argparse, sys
     import keras
@@ -140,9 +159,12 @@ def createRICHModel() :
     critic_loss     = lambda_tf*gradient_penalty - generator_loss
     learning_rate   = tf.train.exponential_decay(1e-3, tf_iter, 200, 0.98)
     optimizer       = tf.train.RMSPropOptimizer(learning_rate)
-    critic_train_op = optimizer.minimize(critic_loss, var_list=critic.trainable_weights)
+    critic_train_op = optimizer.minimize( critic_loss, 
+                                          var_list=critic.trainable_weights )
     generator_train_op = tf.group(
-        optimizer.minimize(generator_loss, var_list=generator.trainable_weights),
+        optimizer.minimize(generator_loss,
+                           var_list=generator.trainable_weights,
+                           global_step = g_step),
         tf.assign_add(tf_iter, 1))
 
     # return a dict with the various entities created
@@ -216,7 +238,7 @@ def plotDimensions( nvars ):
     if ix*iy < nvars : iy = iy+1
     return (ix,iy)
 
-def plots( title, data, dir = 'plots/' ):
+def plots1( title, data, dir = 'plots/' ):
 
     import matplotlib.pyplot as plt
     import os
@@ -244,6 +266,27 @@ def plots( title, data, dir = 'plots/' ):
         plt.savefig(dir+title+'.png')
         plt.close()
 
+def plot2( title, data, names, label=['Target','Generated'], dir = 'plots/' ):
+
+    import matplotlib.pyplot as plt
+
+    # plot dimensions
+    ix,iy = plotDimensions(len(names))
+    
+    plt.figure(figsize=(18,15))
+    for INDEX in range(0,len(names)) :
+        plt.subplot(ix, iy, INDEX+1)
+        d = [ d[:, INDEX] for d in data ]
+        plt.hist( d, bins=100, alpha=0.5, density=True, 
+                  histtype='stepfilled', label=label ) 
+        plt.grid(True)
+        plt.title(title+" "+names[INDEX])
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(dir+title+".png")
+    plt.close()
+
+
 def initPlots( rModel, plots_dir ) :
 
     data_raw       = rModel["RawTrainData"]
@@ -252,10 +295,10 @@ def initPlots( rModel, plots_dir ) :
     target_names   = rModel["TargetNames"]
 
     # Make some input / output plots
-    plots( "output_raw",  data_raw[target_names],   plots_dir )
-    plots( "inputs_raw",  data_raw[train_names],    plots_dir )
-    plots( "output_norm", data_train[target_names], plots_dir )
-    plots( "inputs_norm", data_train[train_names],  plots_dir )
+    plots1( "output_raw",  data_raw[target_names],   plots_dir )
+    plots1( "inputs_raw",  data_raw[train_names],    plots_dir )
+    plots1( "output_norm", data_train[target_names], plots_dir )
+    plots1( "inputs_norm", data_train[train_names],  plots_dir )
 
 def outputCorrs( title, generated_out, true_out, names, dir = 'plots/' ):
 

@@ -40,8 +40,8 @@ np.random.seed(1234)
 tf_config = tf.ConfigProto()
 #tf_config.gpu_options = tf.GPUOptions(allow_growth=True)
 #tf_config.log_device_placement=True
-#tf_config.intra_op_parallelism_threads = 16
-#tf_config.inter_op_parallelism_threads = 16
+tf_config.intra_op_parallelism_threads = 16
+tf_config.inter_op_parallelism_threads = 16
 tf.reset_default_graph()
 
 # create the model
@@ -66,14 +66,8 @@ output_dim = len(target_names)
 
 # Output directories
 plots_dir = args.outputdir+"/"+MODEL_NAME+"/"
+dirs = RICH.outputDirs( plots_dir )
 print ( "Output dir", plots_dir )
-if not os.path.exists(plots_dir) : os.makedirs(plots_dir)
-weights_dir = plots_dir+"weights/"
-its_dir     = plots_dir+"iteration/"
-summary_dir = plots_dir+"summary/"
-model_dir   = plots_dir+"exported_model/"
-for d in [ weights_dir, its_dir, summary_dir, model_dir ] :
-    if os.path.exists(d) : shutil.rmtree(d) 
 
 # Make some input / output plots
 RICH.initPlots( rModel, plots_dir )
@@ -87,15 +81,12 @@ var_init      = tf.global_variables_initializer()
 weights_saver = tf.train.Saver()
 tf.get_default_graph().finalize()
 
-MODEL_WEIGHTS_FILE = weights_dir+"%s.ckpt" % MODEL_NAME
-train_writer       = tf.summary.FileWriter(os.path.join(summary_dir, "train"))
-test_writer        = tf.summary.FileWriter(os.path.join(summary_dir, "test"))
+MODEL_WEIGHTS_FILE = dirs["weights"]+"%s.ckpt" % MODEL_NAME
+train_writer       = tf.summary.FileWriter(os.path.join(dirs["summary"], "train"))
+test_writer        = tf.summary.FileWriter(os.path.join(dirs["summary"], "test"))
 
 # functor to give the number of training runs per iteration
-CRITIC_ITERATIONS_CONST = 15
-CRITIC_ITERATIONS_VAR   = 0
-critic_policy = lambda i: (
-    CRITIC_ITERATIONS_CONST + (CRITIC_ITERATIONS_VAR * (TOTAL_ITERATIONS - i)) // TOTAL_ITERATIONS)
+critic_policy = RICH.critic_policy(TOTAL_ITERATIONS)
 
 with tf.Session(config=tf_config) as sess:
 
@@ -123,7 +114,7 @@ with tf.Session(config=tf_config) as sess:
         if i % VALIDATION_INTERVAL == 0 or i == 1 :
 
             # Directory for plots etc. for this iteratons
-            it_dir = its_dir+str( '%06d' % i )+"/"
+            it_dir = dirs["iterations"]+str( '%06d' % i )+"/"
             if not os.path.exists(it_dir) : os.makedirs(it_dir)
 
             #clear_output(False)
@@ -136,39 +127,16 @@ with tf.Session(config=tf_config) as sess:
             test_writer.add_summary(test_summary, interation)
             weights_saver.save(sess, MODEL_WEIGHTS_FILE)
 
-            # plot dimensions
-            ix,iy = RICH.plotDimensions(output_dim)
-            
             # Normalised output vars
-            plt.figure(figsize=(18,15))
-            for INDEX in range(0,output_dim) :
-                plt.subplot(ix, iy, INDEX+1)
-                data = [ validation_np[target_names].values[:, INDEX],
-                         test_generated[:, INDEX] ] 
-                plt.hist( data, bins=100, alpha=0.5, density=True, 
-                          histtype='stepfilled', label=['Target','Generated'] ) 
-                plt.grid(True)
-                plt.title("Normalised "+target_names[INDEX])
-                plt.legend()
-            plt.tight_layout()
-            plt.savefig(it_dir+"dlls-norm.png")
-            plt.close()
-    
+            RICH.plot2( "NormalisedDLLs", 
+                        [ validation_np[target_names].values, test_generated ],
+                        target_names, ['Target','Generated'], it_dir )
+                    
             # raw generated DLLs
-            plt.figure(figsize=(18,15))
             test_generated_raw = dll_scaler.inverse_transform( test_generated )
-            for INDEX in range(0,output_dim) :
-                plt.subplot(ix, iy, INDEX+1)
-                data =  [ validation_np_raw[target_names].values[:, INDEX],
-                          test_generated_raw[:, INDEX] ] 
-                plt.hist( data, bins=100, alpha=0.5, density=True, 
-                          histtype='stepfilled', label=['Target','Generated'] ) 
-                plt.grid(True)
-                plt.title("Raw "+target_names[INDEX])
-                plt.legend()
-            plt.tight_layout()
-            plt.savefig(it_dir+"dlls-raw.png")
-            plt.close()
+            RICH.plot2( "RawDLLs", 
+                        [ validation_np_raw[target_names].values, test_generated_raw ],
+                        target_names, ['Target','Generated'], it_dir )
 
             # DLL correlations
             RICH.outputCorrs( "correlations", test_generated, validation_np[target_names].values,
@@ -179,8 +147,8 @@ with tf.Session(config=tf_config) as sess:
     sess.run(var_init)
     weights_saver.restore(sess, MODEL_WEIGHTS_FILE)
     sess.graph._unsafe_unfinalize()
-    tf.saved_model.simple_save(sess, model_dir,
-                               inputs={"x": train_x_1}, outputs={"dlls": generated_y_1})
+    tf.saved_model.simple_save(sess, dirs["model"],
+                               inputs={"x": batch_data[1]}, outputs={"dlls": batch_gen_dlls[0]})
     tf.get_default_graph().finalize()
     
 #from sklearn.externals import joblib

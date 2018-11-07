@@ -63,7 +63,7 @@ export INPUTS="NumLongTracks TrackP TrackPt"
 export OUTPUTS="RichDLLe RichDLLk RichDLLp RichDLLbt"
 
 # run the job
-./run_tf.py --batchmode --name $JOBNAME --outputdir=$OUTDIR --datareadsize $MAXDATA --batchsize $BATCH_SIZE --validationsize $VALIDATION_SIZE --niterations $TOTAL_ITERATIONS --validationinterval $VALIDATION_INTERVAL --inputvars $INPUTS --outputvars $OUTPUTS 2>&1 | cat > $LOGFILE
+./run_tf_local.py --batchmode --name $JOBNAME --outputdir=$OUTDIR --datareadsize $MAXDATA --batchsize $BATCH_SIZE --validationsize $VALIDATION_SIZE --niterations $TOTAL_ITERATIONS --validationinterval $VALIDATION_INTERVAL --inputvars $INPUTS --outputvars $OUTPUTS 2>&1 | cat > $LOGFILE
 
 # clean up
 rm -r __pycache__ RICH.py run_tf.py
