@@ -37,8 +37,12 @@ VALIDATION_INTERVAL = args.validationinterval
 # To make sure that we can reproduce the experiment and get the same results
 np.random.seed(1234)
 
-tf_config = tf.ConfigProto()
-#tf_config.gpu_options = tf.GPUOptions(allow_growth=True)
+if platform.node() == 'chris-MS-7B09' :
+    print("Using GPU options")
+    tf_config = tf.ConfigProto( gpu_options = tf.GPUOptions(allow_growth=False),
+                                allow_soft_placement = True )
+else:
+    tf_config = tf.ConfigProto()
 #tf_config.log_device_placement=True
 tf_config.intra_op_parallelism_threads = 16
 tf_config.inter_op_parallelism_threads = 16
@@ -94,10 +98,10 @@ with tf.Session(config=tf_config) as sess:
     sess.run(var_init)
     
     # Try and restore a saved weights file
-    try:
-        weights_saver.restore(sess, MODEL_WEIGHTS_FILE)
-    except tf.errors.NotFoundError:
-        print("Can't restore parameters: no file with weights")
+    #try:
+    #    weights_saver.restore(sess, MODEL_WEIGHTS_FILE)
+    #except tf.errors.NotFoundError:
+    #    print("Can't restore parameters: no file with weights")
 
     # Do the iterations
     its = range(1,TOTAL_ITERATIONS+1)

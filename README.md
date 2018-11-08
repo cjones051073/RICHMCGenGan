@@ -1,10 +1,14 @@
 # Training scripts for RICH MC generation GANs
 
-Setup :-
+Cambridge CPU setup :-
 
  > source /opt/rh/rh-python36/enable
  
  > source /usera/jonesc/VirtualEnvs/TensorFlow/bin/activate
+
+On gorfrog :-
+
+ > conda activate TensorFlow
 
 Useful links :-
 

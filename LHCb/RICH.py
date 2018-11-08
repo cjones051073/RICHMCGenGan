@@ -330,6 +330,8 @@ def outputCorrs( title, generated_out, true_out, names, dir = 'plots/' ):
 
 def get_tf_dataset( dataset, batch_size, dtype = np.float32 ):
     import tensorflow as tf
-    shuffler   = tf.data.experimental.shuffle_and_repeat(dataset.shape[0])
+    #shuffler   = tf.data.experimental.shuffle_and_repeat(dataset.shape[0])
+    shuffler   = tf.contrib.data.shuffle_and_repeat(dataset.shape[0])
     suffled_ds = shuffler(tf.data.Dataset.from_tensor_slices(dataset))
     return suffled_ds.batch(batch_size).prefetch(1).make_one_shot_iterator().get_next()
+    #return tf.data.Dataset.from_tensor_slices(dataset).batch(batch_size).prefetch(1).make_one_shot_iterator().get_next()
