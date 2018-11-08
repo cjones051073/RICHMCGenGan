@@ -14,13 +14,16 @@ def critic_policy(TOTAL_ITERATIONS):
 
 def outputDirs( dir, clear = True ) :
     
-    if clear and os.path.exists(dir) : shutil.rmtree(dir) 
+    #if clear and os.path.exists(dir) : shutil.rmtree(dir) 
     if not os.path.exists(dir) : os.makedirs(dir)
     dirs = { "weights"    : dir+"weights/",
              "iterations" : dir+"iteration/",
              "summary"    : dir+"summary/",
              "model"      : dir+"exported_model/",
              "checkpoint" : dir+"checkpoint/" }
+    if clear : 
+        for name in dirs.keys() :
+            if os.path.exists(dirs[name]) : shutil.rmtree(dirs[name]) 
     return dirs
 
 def createRICHModel( g_step = None ) :
@@ -161,11 +164,11 @@ def createRICHModel( g_step = None ) :
     optimizer       = tf.train.RMSPropOptimizer(learning_rate)
     critic_train_op = optimizer.minimize( critic_loss, 
                                           var_list=critic.trainable_weights )
-    generator_train_op = tf.group(
-        optimizer.minimize(generator_loss,
-                           var_list=generator.trainable_weights,
-                           global_step = g_step),
-        tf.assign_add(tf_iter, 1))
+    gen_op          = optimizer.minimize( generator_loss,
+                                          var_list=generator.trainable_weights,
+                                          global_step = g_step )
+
+    generator_train_op = tf.group( gen_op, tf.assign_add(tf_iter,1) )
 
     # return a dict with the various entities created
     return { "RawTrainData"       : data_raw,

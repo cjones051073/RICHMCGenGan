@@ -12,15 +12,16 @@ def main(_):
     def log(s) :
         if FLAGS.verbose : print(s)
 
+    # Tf config
     tf_config = tf.ConfigProto()
     #tf_config.gpu_options = tf.GPUOptions(allow_growth=True)
     #tf_config.log_device_placement=True
     tf_config.intra_op_parallelism_threads = 16
     tf_config.inter_op_parallelism_threads = 16
-    #tf.reset_default_graph()
+    tf.reset_default_graph()
 
-    ps_hosts     = FLAGS.ps_hosts.split(",")
-    worker_hosts = FLAGS.worker_hosts.split(",")
+    ps_hosts     = FLAGS.ps_hosts.split(",") 
+    worker_hosts = FLAGS.worker_hosts.split(",") 
     log( ps_hosts )
     log( worker_hosts )
 
@@ -51,6 +52,9 @@ def main(_):
 
         # is this the master ?
         isChief = FLAGS.task_index == 0
+
+        # If not the chief, sleep for 30 secs
+        if not isChief : time.sleep(10)
 
         # Output directories
         plots_dir = FLAGS.outputdir+"/"+FLAGS.taskname+"/"
@@ -147,8 +151,8 @@ def main(_):
                 log( "Global step %d" % step )
                 
                 # Do plots
-                if isChief and ( 0 == lastMoniStep or (step-lastMoniStep) > FLAGS.validationinterval ) :
-                    
+                if isChief and step > 0 and (step-lastMoniStep) > FLAGS.validationinterval :
+
                     lastMoniStep = step
                     
                     log ( "Monitoring" )
@@ -188,6 +192,9 @@ def main(_):
 
 if __name__ == "__main__":
 
+    # print PID so handler script can capture it
+    #print( os.getpid() )
+
     parser = argparse.ArgumentParser()
 
     parser.register("type", "bool", lambda v: v.lower() == "true")
@@ -211,7 +218,6 @@ if __name__ == "__main__":
         default="",
         help="One of 'ps', 'worker'"
     )
-    # Flags for defining the tf.train.Server
     parser.add_argument(
         "--task_index",
         type=int,

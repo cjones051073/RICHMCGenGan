@@ -1,8 +1,7 @@
 #!/bin/bash
 
 # environment
-source /opt/rh/rh-python36/enable 
-source /usera/jonesc/VirtualEnvs/TensorFlow/bin/activate
+source $HOME/Projects/MCGenGAN/setup.sh
 
 export OUTDIR="/usera/jonesc/NFS/output/MCGenGAN"
 
