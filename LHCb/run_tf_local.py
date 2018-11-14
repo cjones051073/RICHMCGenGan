@@ -237,7 +237,7 @@ with tf.device(tf_device):
         gradients         = tf.gradients(disc_interpolates, [interpolates])[0]
         slopes            = tf.norm(tf.reshape(gradients, [tf.shape(gradients)[0], -1]), axis=1)
         gradient_penalty  = tf.reduce_mean(tf.square(tf.maximum(tf.abs(slopes) - 1, 0)))
-        
+
     tf_iter         = tf.Variable(initial_value=0, dtype=tf.int32)
     lambda_tf       = 20 / np.pi * 2 * tf.atan(tf.cast(tf_iter,tf.float32)/1e4)
     critic_loss     = lambda_tf*gradient_penalty - generator_loss
@@ -277,14 +277,14 @@ target_diff = generated_y_1 - train_x_1_targets
 if args.debug :
     print( "target_diff\n", target_diff.shape )
 
-tf.summary.scalar("critic_loss",    tf.reshape(critic_loss, []))
-tf.summary.scalar("generator_loss", tf.reshape(generator_loss, []))
-tf.summary.scalar("learning_rate",  learning_rate)
-tf.summary.scalar("lambda",         lambda_tf)
+tf.summary.scalar("Critic_Loss",    tf.reshape(critic_loss, []))
+tf.summary.scalar("Generator_Loss", tf.reshape(generator_loss, []))
+tf.summary.scalar("Learning_Rate",  learning_rate)
+tf.summary.scalar("Lambda",         lambda_tf)
 # Add histograms for generated output
-tf.summary.histogram( "interpolates", interpolates )
-tf.summary.histogram( "gradients", gradients )
-tf.summary.histogram( "slopes", slopes )
+tf.summary.histogram( "Interpolates", interpolates )
+tf.summary.histogram( "Gradients", gradients )
+tf.summary.histogram( "Slopes", slopes )
 for iname in range(output_dim) :
     tf.summary.histogram( target_names[iname], generated_y_1[:,iname] )
     tf.summary.histogram( target_names[iname]+"-Diff", target_diff[:,iname] )

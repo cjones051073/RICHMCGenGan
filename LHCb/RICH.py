@@ -12,6 +12,10 @@ def critic_policy(TOTAL_ITERATIONS):
         CRITIC_ITERATIONS_CONST + (CRITIC_ITERATIONS_VAR * (TOTAL_ITERATIONS - i)) // TOTAL_ITERATIONS )
     return critic_policy
 
+def splitDataFrame( data, nsplits ) :
+    splits = np.array_split( data, nsplits )
+    return [ pd.DataFrame( s, columns = data.columns, dtype=np.float32 ) for s in splits ]
+
 def outputDirs( dir, clear = True ) :
 
     #if clear and os.path.exists(dir) : shutil.rmtree(dir) 
@@ -26,13 +30,11 @@ def outputDirs( dir, clear = True ) :
             if os.path.exists(dirs[name]) : shutil.rmtree(dirs[name]) 
     return dirs
 
-def convertCSVtoHDF( types = ['PIONS','KAONS'] ) :
+def convertCSVtoHDF( infile, outfile ) :
 
-    for type in types :
-        datafile = 'data/PID-train-data-'+type
-        data = pd.read_csv( datafile+'.txt.gz', delim_whitespace = True )
-        data = data.astype( np.float32 )
-        data.to_hdf( datafile+'.hdf', type, mode='w', complib='blosc')
+    data = pd.read_csv( infile, delim_whitespace = True )
+    data = data.astype( np.float32 )
+    data.to_hdf( outfile, type, mode='w', complib='blosc')
 
 # load the LHCb data
 def createLHCbData( names, maxData = -1, type = 'KAONS', 
