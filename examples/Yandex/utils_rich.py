@@ -5,11 +5,14 @@ import pandas as pd
 import tensorflow as tf
 
 datasets_kaon = [
-        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_-_down_2016_.csv",
-        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_-_up_2016_.csv",
-        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_+_down_2016_.csv",
-        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_+_up_2016_.csv",
+        "/home/jonesc/Projects/RICHMCGenGan/data/PID-train-data-KAONS.hdf"
         ]
+#datasets_kaon = [
+#        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_-_down_2016_.csv",
+#        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_-_up_2016_.csv",
+#        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_+_down_2016_.csv",
+#        "/mnt/amaevskiy/lhcb_calibsample/calibsample/kaon_+_up_2016_.csv",
+#        ]
 datasets_pion = [
         "/mnt/amaevskiy/lhcb_calibsample/calibsample/pion_-_down_2016_.csv",
         "/mnt/amaevskiy/lhcb_calibsample/calibsample/pion_-_up_2016_.csv",
@@ -18,8 +21,8 @@ datasets_pion = [
         ]
 
 dll_columns = ['RichDLLe', 'RichDLLk', 'RichDLLmu', 'RichDLLp', 'RichDLLbt']
-raw_feature_columns = [ 'Brunel_P', 'Brunel_ETA', 'nTracks_Brunel' ]
-weight_col = 'probe_sWeight'
+raw_feature_columns = [ 'TrackP', 'TrackPt', 'NumLongTracks' ]
+weight_col = 'Weight'
 
 #non_type_features = [
 #    'particle_one_energy', 'particle_two_energy',
@@ -31,10 +34,16 @@ TEST_SIZE = 0.5
 #ENERGY_CUT = 2.5
 
 def load_and_cut(file_name):
-    data = pd.read_csv(file_name, delimiter='\t')
-#    data = data[(data.particle_one_energy > ENERGY_CUT)]
-#    assert not ((data[['support_electron', 'support_kaon', 'support_muon',
-#                       'support_proton', 'support_pion']] == 0).any()).any()
+    #data = pd.read_csv(file_name, delimiter='\t')
+    data = pd.read_hdf(file_name, type='KAONS')
+
+    # add missing weights column
+    data[weight_col] = 1.0
+ 
+    #    data = data[(data.particle_one_energy > ENERGY_CUT)]
+    #    assert not ((data[['support_electron', 'support_kaon', 'support_muon',
+    #                       'support_proton', 'support_pion']] == 0).any()).any()
+
     return data[dll_columns+raw_feature_columns+[weight_col]]
 
 def load_and_merge_and_cut(filename_list):
@@ -54,7 +63,7 @@ def load_and_merge_and_cut(filename_list):
 
 
 def split(data):
-    data_train, data_val = train_test_split(data, test_size=TEST_SIZE, random_state=42)
+    data_train, data_val = train_test_split(data,     test_size=TEST_SIZE, random_state=42)
     data_val, data_test  = train_test_split(data_val, test_size=TEST_SIZE, random_state=1812)
     return data_train.reset_index(drop=True), \
            data_val  .reset_index(drop=True), \
@@ -71,8 +80,8 @@ def split(data):
 #    data_val, data_test = train_test_split(data_val, test_size=TEST_SIZE, random_state=1812)
 #    return data_train, data_val, data_test, scaler
 
-def get_tf_dataset(dataset, batch_size):
-    shuffler = tf.contrib.data.shuffle_and_repeat(dataset.shape[0])
+def get_tf_dataset(dataset, batch_size, seed = 9876):
+    shuffler    = tf.contrib.data.shuffle_and_repeat(dataset.shape[0],seed=seed)
     suffled_ds = shuffler(tf.data.Dataset.from_tensor_slices(dataset))
     return suffled_ds.batch(batch_size).prefetch(1).make_one_shot_iterator().get_next()
 
@@ -100,11 +109,13 @@ def get_merged_typed_dataset(particle_type, dtype=None, log=False):
     # Must split the whole to preserve train/test split""
     if log: print("splitting to train/val/test")
     data_train, data_val, _ = split(data_full)
+    #print( "raw train data\n", data_train.tail() )
+    #print( "raw data val\n", data_val.tail() )
     if log: print("fitting the scaler")
     print("scaler train sample size: {}".format(len(data_train)))
     scaler = QuantileTransformer(output_distribution="normal",
                                  n_quantiles=int(1e5),
-                                 subsample=int(1e10)).fit(data_train.drop(weight_col, axis=1).values)
+                                 subsample=int(1e10)).fit(data_train.drop(weight_col,axis=1).values)
     if log: print("scaling train set")
     data_train = pd.concat([scale_pandas(data_train.drop(weight_col, axis=1), scaler), data_train[weight_col]], axis=1)
     if log: print("scaling test set")
