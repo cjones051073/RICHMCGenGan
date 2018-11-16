@@ -26,7 +26,7 @@ def outputDirs( dir, clear = True ) :
              "model"      : dir+"exported_model/",
              "checkpoint" : dir+"checkpoint/" }
     if clear : 
-        for name in dirs.keys() :
+        for name in [ "iterations" ] :
             if os.path.exists(dirs[name]) : shutil.rmtree(dirs[name]) 
     return dirs
 

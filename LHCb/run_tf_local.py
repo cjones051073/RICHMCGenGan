@@ -75,7 +75,7 @@ RNDM_SEED = 12345
 np.random.seed(RNDM_SEED)
 tf.set_random_seed(RNDM_SEED)
 
-if not args.debug and platform.node() == 'chris-MS-7B09' :
+if not args.debug and platform.node() == 'gorfrog' :
     print("Using GPU options")
     tf_config = tf.ConfigProto( gpu_options = tf.GPUOptions(allow_growth=True),
                                 allow_soft_placement = True )
