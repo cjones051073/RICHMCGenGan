@@ -125,7 +125,10 @@ GENERATOR_DIMENSIONS = NOISE_DIMENSIONS + len(train_names)
 
 with tf.device('/cpu:0'):
 
+  # global step 
   g_step = tf.train.get_or_create_global_step()
+  # op to increment the global step
+  increment_global_step_op = tf.assign(g_step, g_step+1)
 
   # read data from file
   readData = RICH.createLHCbData( target_names+train_names,  
@@ -200,7 +203,7 @@ with tf.device('/cpu:0'):
           for i in range(0,N_LAYERS_GENERATOR) :
             generator_i.add( keras.layers.Dense(128, activation='relu' ) )
             if LEAK_RATE    > 0 : generator_i.add( keras.layers.LeakyReLU(LEAK_RATE) )
-            if DROPOUT_RATE > 0 : generator_i.add( keras.layers.Dropout(DROPOUT_RATE) )
+            #if DROPOUT_RATE > 0 : generator_i.add( keras.layers.Dropout(DROPOUT_RATE) )
           generator_i.add( keras.layers.Dense(output_dim) )
           generator_i.summary()
           gpu_generators.append(generator_i)
@@ -208,34 +211,36 @@ with tf.device('/cpu:0'):
           # Create tensor data iterators
           print( "Creating data iterators" )
           # everything, inputs and outputs
-          train_full_ = RICH.get_tf_dataset( data_train[igpu], BATCH_SIZE, seed = 15346+igpu )
-          train_full, w_full = train_full_[:,:-1], train_full_[:,-1]
+          train_full_ = RICH.get_tf_dataset( data_train[igpu], BATCH_SIZE )
+          #train_full, w_full = train_full_[:,:-1], train_full_[:,-1]
+          train_full = train_full_[:,:-1]
   
           # Inputs only, two independent random sets
-          train_x_1_all = RICH.get_tf_dataset(data_train[igpu].values, BATCH_SIZE, seed = 1111+igpu )
-          #train_x_1_ = RICH.get_tf_dataset(data_train[igpu][train_names+[weight_col]].values, BATCH_SIZE, seed = 1111+igpu)
-          #train_x_2_ = RICH.get_tf_dataset(data_train[igpu][train_names+[weight_col]].values, BATCH_SIZE, seed = 2222+igpu)
-          #train_x_1_ = RICH.get_tf_dataset(data_train[igpu].values[:, output_dim:], BATCH_SIZE, seed = 1111+igpu)
+          train_x_1_all = RICH.get_tf_dataset( data_train[igpu].values, BATCH_SIZE )
+          #train_x_1_ = RICH.get_tf_dataset(data_train[igpu][train_names+[weight_col]].values, BATCH_SIZE)
+          #train_x_2_ = RICH.get_tf_dataset(data_train[igpu][train_names+[weight_col]].values, BATCH_SIZE)
+          #train_x_1_ = RICH.get_tf_dataset(data_train[igpu].values[:, output_dim:], BATCH_SIZE)
           train_x_1_ =  train_x_1_all[:,output_dim:]
-          train_x_2_ = RICH.get_tf_dataset( data_train[igpu].values[:, output_dim:], BATCH_SIZE, seed = 2222+igpu)
           #train_x_1, w_x_1 = train_x_1_[:,:-1], train_x_1_[:,-1]
           #train_x_2, w_x_2 = train_x_2_[:,:-1], train_x_2_[:,-1]
-          train_x_1 = train_x_1_[:,:-1]
-          train_x_2 = train_x_2_[:,:-1]
-          train_x_1_targets  = train_x_1_all[:, :output_dim]
-          
+          train_x_1         = train_x_1_[:,:-1]
+          train_x_1_targets = train_x_1_all[:,:output_dim]
+                   
+          train_x_2_        = RICH.get_tf_dataset( data_train[igpu].values[:, output_dim:], BATCH_SIZE )
+          train_x_2         = train_x_2_[:,:-1]
+ 
           if args.debug : 
             print( "train_full\n", train_full.shape, "\n", train_full.eval() )
-            print( "train_x_1\n", train_x_1.shape, "\n", train_x_1.eval() )
-            print( "train_x_2\n", train_x_2.shape, "\n", train_x_2.eval() )
+            print( "train_x_1\n",  train_x_1.shape, "\n", train_x_1.eval() )
+            print( "train_x_2\n",  train_x_2.shape, "\n", train_x_2.eval() )
             #print( "w_x_1\n", w_x_1.shape, "\n", w_x_1.eval() )
             #print( "w_x_2\n", w_x_2.shape, "\n", w_x_2.eval() )
             print( "train_x_1_targets\n", train_x_1_targets.shape, "\n", train_x_1_targets.eval() )
     
           # Create noise data
           print( "Creating noise data" )
-          noise_1 = tf.random_normal([tf.shape(train_x_1)[0], NOISE_DIMENSIONS], name='noise', seed = 4242+igpu )
-          noise_2 = tf.random_normal([tf.shape(train_x_2)[0], NOISE_DIMENSIONS], name='noise', seed = 2424+igpu )
+          noise_1 = tf.random_normal([tf.shape(train_x_1)[0], NOISE_DIMENSIONS], name='noise' )
+          noise_2 = tf.random_normal([tf.shape(train_x_2)[0], NOISE_DIMENSIONS], name='noise' )
   
           if args.debug :
             print("noise_1\n", noise_1.shape, '\n', noise_1.eval() )
@@ -255,7 +260,8 @@ with tf.device('/cpu:0'):
         
           def cramer_critic( x, y ):
             discriminated_x = critic_i(x)
-            return tf.norm(discriminated_x - critic_i(y), axis=1) - tf.norm(discriminated_x, axis=1)
+            discriminated_y = critic_i(y)
+            return tf.norm(discriminated_x - discriminated_y, axis=1) - tf.norm(discriminated_x, axis=1)
   
           # loss function for generator network (when weights are all 1)
           generator_loss = tf.reduce_mean(cramer_critic(train_full      , generated_full_2) 
@@ -266,9 +272,9 @@ with tf.device('/cpu:0'):
   
           with tf.name_scope("gradient_loss") :
             alpha             = tf.random_uniform(shape=[tf.shape(train_full)[0], 1],
-                                                  minval=0., maxval=1., seed = 5678+igpu )
+                                                  minval=0., maxval=1. )
             interpolates      = alpha*train_full + (1.-alpha)*generated_full_1
-            disc_interpolates = cramer_critic(interpolates, generated_full_2)
+            disc_interpolates = cramer_critic( interpolates, generated_full_2 )
             gradients         = tf.gradients(disc_interpolates, [interpolates])[0]
             slopes            = tf.norm(tf.reshape(gradients, [tf.shape(gradients)[0], -1]), axis=1)
             gradient_penalty  = tf.reduce_mean(tf.square(tf.maximum(tf.abs(slopes) - 1, 0)))
@@ -279,11 +285,12 @@ with tf.device('/cpu:0'):
           learning_rate   = tf.train.exponential_decay( 2e-3, tf_iter, 200, 0.985 )
           
           optimizer       = tf.train.RMSPropOptimizer(learning_rate)
+          #optimizer       = tf.train.AdamOptimizer(learning_rate)
           
           critic_train_op_i = optimizer.minimize( critic_loss, 
                                                   var_list=critic_i.trainable_weights )
           gpu_critic_ops.append( critic_train_op_i )
-          
+
           gen_train_op_i    = tf.group( optimizer.minimize( generator_loss,
                                                             var_list=generator_i.trainable_weights ),
                                         tf.assign_add(tf_iter,1) )
@@ -291,6 +298,10 @@ with tf.device('/cpu:0'):
   
           if args.debug :
             print("alpha\n", alpha.shape, '\n', alpha.eval() )
+            print("interpolates", interpolates.shape )
+            print("gradients", gradients.shape )
+            print("slopes", slopes.shape )
+            print("gradient_penalty", gradient_penalty.shape )
 
           # compute diff between target and trained generator output
           target_diff = generated_y_1 - train_x_1_targets
@@ -373,20 +384,14 @@ with tf.device('/cpu:0'):
   tf.get_default_graph().finalize()
   
   MODEL_WEIGHTS_FILE = dirs["weights"]+"%s.ckpt" % MODEL_NAME
-  train_writer       = tf.summary.FileWriter(os.path.join(dirs["summary"], "train"))
-  test_writer        = tf.summary.FileWriter(os.path.join(dirs["summary"], "test"))
+  train_writer       = tf.summary.FileWriter(os.path.join(dirs["summary"],"train"))
+  test_writer        = tf.summary.FileWriter(os.path.join(dirs["summary"],"test"))
 
   # if debug, abort before starting training..
   if args.debug : sys.exit(0)
 
   # functor to give the number of training runs per iteration
   critic_policy = RICH.critic_policy(TOTAL_ITERATIONS)
-  
-  # To make sure that we can reproduce the experiment and get the same results
-  RNDM_SEED = 12345
-  np.random.seed(RNDM_SEED)
-  tf.set_random_seed(RNDM_SEED)
-
 
 with tf.Session(config=tf_config) as sess:
 
@@ -405,18 +410,24 @@ with tf.Session(config=tf_config) as sess:
   if not ( args.batchmode or args.debug ) : its = tqdm(its)
   for i in its :
 
+    # read the current global it
+    g_it = sess.run( g_step )
+
+    # skip run iterations
+    if i-1 < g_it : continue
+
     if args.debug : print( "Start training" )
     for j in range(critic_policy(i)) : sess.run( gpu_critic_ops )
     train_summary = sess.run( merged_summary )
     sess.run( gpu_gen_ops )
-    interation = sess.run( tf_iter )
+    sess.run( increment_global_step_op )
     if args.debug : print( "Finish training" )
-   
+  
     # write the summary data at given rate
     if i % args.trainwriteinterval == 0 or i == 1 :
       
       if args.debug : print( "Start train write" )
-      train_writer.add_summary(train_summary, interation)
+      train_writer.add_summary(train_summary, g_it)
       if args.debug : print( "Finish train write" )
    
     # merge the GPU info at a given rate
@@ -443,7 +454,7 @@ with tf.Session(config=tf_config) as sess:
           train_full_   : validation_np.values } )
       
       # Summary and weights
-      test_writer.add_summary(test_summary, interation)
+      test_writer.add_summary(test_summary, g_it)
       weights_saver.save( sess, MODEL_WEIGHTS_FILE )
       
       # Normalised output vars

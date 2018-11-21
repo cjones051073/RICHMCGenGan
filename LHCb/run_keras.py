@@ -1,331 +1,263 @@
-#! /usr/bin/env python
+#! /usr/bin/env python3
 
-import os, shutil
-import numpy as np
-import pandas as pd
-from sklearn.model_selection import train_test_split
-import RICH
+from __future__ import print_function, division
+import sys, os
 
 # Let Keras know that we are using tensorflow as our backend engine
 os.environ["KERAS_BACKEND"] = "tensorflow"
 
-# To make sure that we can reproduce the experiment and get the same results
-np.random.seed(1234)
+from keras.datasets import mnist
+from keras.layers import Input, Dense, Reshape, Flatten, Dropout
+from keras.layers import BatchNormalization, Activation, ZeroPadding2D
+from keras.layers import InputLayer, Concatenate, concatenate
+from keras.layers.advanced_activations import LeakyReLU
+from keras.layers.convolutional import UpSampling2D, Conv2D
+from keras.models import Sequential, Model
+from keras.optimizers import RMSprop
+from keras.utils import multi_gpu_model
 
-# The dimension of the input, including random noise
-input_dim  = 64 
+import keras.backend as K
 
-# names of variables to extract for training data
-train_names = [ 'NumRich1Hits', 'NumRich2Hits', 'TrackP', 'TrackPt' 
-                #,'NumPVs'
-                #,"NumLongTracks"
-                #,"TrackChi2PerDof", "TrackNumDof"
-                #,'TrackVertexX', 'TrackVertexY', 'TrackVertexZ' 
-                #,'TrackRich1EntryX', 'TrackRich1EntryY' 
-                #,'TrackRich1ExitX', 'TrackRich1ExitY',
-                #,'TrackRich2EntryX', 'TrackRich2EntryY'
-                #,'TrackRich2ExitX', 'TrackRich2ExitY' 
-]
-# Train on random input only
-#train_names = [ ]
+import tensorflow as tf
 
-# names for target data
-target_names = [ 'RichDLLe', 'RichDLLmu', 'RichDLLk', 'RichDLLp', 'RichDLLd', 'RichDLLbt' ]
-output_dim = len(target_names)
+import matplotlib.pyplot as plt
 
-# amount of noise to add to training data
-n_noise_data = input_dim - len(train_names) 
+import numpy as np
 
-# Adam optimizer
-def get_optimizer():
-    from keras.optimizers import Adam, RMSprop
-    return Adam( lr=0.0002, beta_1=0.5 )
-    #return RMSprop(lr=0.00005)
+import pandas as pd
 
-def get_generator(optimizer):
+import RICH
 
-    from keras.models import Sequential
-    from keras.layers.core import Dense
-    from keras.layers.advanced_activations import LeakyReLU
-    from keras import initializers
-    
-    generator = Sequential()
-    generator.add(Dense(256, input_dim=input_dim, kernel_initializer=initializers.RandomNormal(stddev=0.02)))
-    generator.add(LeakyReLU(0.2))
+import argparse
 
-    generator.add(Dense(512))
-    generator.add(LeakyReLU(0.2))
+from tqdm import tqdm
 
-    generator.add(Dense(1024))
-    generator.add(LeakyReLU(0.2))
-
-    generator.add(Dense(256))
-    generator.add(LeakyReLU(0.2))
-
-    generator.add(Dense(output_dim, activation='tanh'))
-    generator.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-
-    generator.summary()
-
-    return generator
-
-def discriminator_loss( y_true, y_pred ) :
-    import keras.backend as K
-    # Wasserstein 
-    return K.mean( y_true * y_pred )
-    # Cramer
-
-
-def get_discriminator(optimizer):
-
-    from keras.models import Sequential
-    from keras.layers.core import Dense, Dropout
-    from keras.layers.advanced_activations import LeakyReLU
-    from keras import initializers
-    import keras.layers as ll
-
-    SIZE   = 128
-    LAYERS = 10
-
-    weight_init = initializers.RandomNormal( mean=0, stddev=0.02 )
-
-    discriminator = Sequential()
-
-    discriminator.add( Dense( SIZE, 
-                              input_dim=output_dim,
-                              activation='relu',
-                              kernel_initializer=weight_init ) )
-                            
-    for i in range(LAYERS-1) :
-        discriminator.add( Dense( SIZE, activation='relu' ) )
-
-    discriminator.add(Dense(1, activation='sigmoid'))
-    
-    #discriminator.compile(loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'])
-
-    #discriminator.compile(loss=d_loss, optimizer=optimizer, metrics=['accuracy'])
-
-    discriminator.compile(loss=discriminator_loss, optimizer=optimizer, metrics=['accuracy'])
-
-    discriminator.summary()
-
-    return discriminator
-
-def get_gan_network(discriminator, random_dim, generator, optimizer):
-    from keras.models import Model
-    from keras.layers import Input
-
-    # We initially set trainable to False since we only want to train either the
-    # generator or discriminator at a time
-    discriminator.trainable = False
-
-    # gan input
-    gan_input = Input(shape=(input_dim,))
-
-    # the output of the generator
-    x = generator(gan_input)
-
-    # get the output of the discriminator 
-    gan_output = discriminator(x)
-
-    # create the gan
-    gan = Model( inputs=gan_input, outputs=gan_output  )
-    gan.compile( loss='binary_crossentropy', optimizer=optimizer, metrics=['accuracy'] )
-
-    gan.summary()
-
-    return gan
-
-def getTrainBatch( train_input, batch_i ):
-    
-    # Get the real physics inputs
-    phys_input = train_input[batch_i]
-   
-    # generate some additional random input data
-    noise_input = np.random.normal( 0, 1, size=[len(batch_i),n_noise_data] )
-    
-    # add physics and noise input
-    all_input = np.concatenate( (phys_input,noise_input), axis=1 )
-
-    return all_input
-
-def train( epochs=1, batches_per_epoch=100, batch_size=256, maxData=-1 ):
-
-    from tqdm import tqdm
-    import matplotlib.pyplot as plt
-    import platform
-
-    plots_dir = "plots/"+platform.node()+"/LHCbGen/"
-    if     os.path.exists(plots_dir) : shutil.rmtree(plots_dir) 
-    if not os.path.exists(plots_dir) : os.makedirs(plots_dir)
-    
-    # Get the training and testing data
-    all_input  = RICH.createLHCbData( train_names,  maxData, 'KAONS' )
-    all_target = RICH.createLHCbData( target_names, maxData, 'KAONS' )
-
-    # Split into train and test samples
-    train_input, test_input   = train_test_split( all_input,  random_state = 1234 )
-    train_target, test_target = train_test_split( all_target, random_state = 4321 ) 
-
-    # plots of the target output
-    RICH.plots( "output_raw", all_target, plots_dir )
-
-    # make some plots of the raw inputs
-    RICH.plots( "inputs_raw", all_input, plots_dir )
-
-    # normalise the data
-    print( "Normalising the data" )
-    if len(all_input.columns) > 0 :
-        input_scaler = RICH.getScaler( all_input  )
-        train_input  = pd.DataFrame( input_scaler.transform(train_input), columns = train_input.columns )
-        test_input   = pd.DataFrame( input_scaler.transform(test_input),  columns = test_input.columns )
-    output_scaler = RICH.getScaler( all_target )
-    train_target  = pd.DataFrame( output_scaler.transform(train_target), columns = train_target.columns )
-    test_target   = pd.DataFrame( output_scaler.transform(test_target),  columns = test_target.columns )
-
-    # plots of the target normalised output
-    RICH.plots( "output_norm", all_target, plots_dir )
-
-    # make some plots of the normalised inputs
-    RICH.plots( "inputs_norm", all_input, plots_dir )
-
-    # Build our GAN netowrk
-    adam          = get_optimizer()
-    generator     = get_generator(adam)
-    discriminator = get_discriminator(adam)
-    gan           = get_gan_network(discriminator, input_dim, generator, adam)
-
-    test_loss   = [ ]
-    test_acc    = [ ]
-    train_loss  = [ ]
-    train_acc   = [ ]
-
-    run_epochs = [ ]
-
-    for e in range(1, epochs+1):
-
-        run_epochs += [ e ]
-        print ( '-'*15, 'Epoch %d' % e, '-'*15 )
-
-        for _ in tqdm(range(batches_per_epoch)):
-
-            # get a random set of indices
-            batch_i = np.random.randint( 0, train_input.shape[0], size=batch_size ) 
-
-            # generate output
-            generated_output = generator.predict( getTrainBatch(train_input.values,batch_i) )
-
-            # target output values for this batch
-            batch_target = train_target.values[batch_i]
-
-            # concatenate real and generated output
-            disc_train_d = np.concatenate( [ batch_target, generated_output ] )
-
-            # Labels for generated (0) and real (0.9) target data
-            disc_target = np.zeros(2*batch_size)
-            # One-sided label smoothing
-            disc_target[:batch_size] = 0.9
-
-            # Train discriminator
-            discriminator.trainable = True
-            discriminator.train_on_batch( disc_train_d, disc_target )
-
-            # get a new random set of indices
-            batch_i = np.random.randint( 0, train_input.values.shape[0], size=batch_size ) 
-
-            # Train generator
-            discriminator.trainable = False
-            gan.train_on_batch( getTrainBatch(train_input.values,batch_i), np.ones(batch_size) )
-
-        # evaluate the generator on training data
-        train_noise = np.random.normal( 0, 1, size=[train_input.values.shape[0],n_noise_data] )
-        all_train   = np.concatenate( (train_input,train_noise), axis=1 )
-        loss_acc    = generator.evaluate( all_train, train_target, batch_size )
-        train_loss += [ loss_acc[0] ]
-        train_acc  += [ loss_acc[1] ]
-
-        # evaluate the generator on test data
-        test_noise  = np.random.normal( 0, 1, size=[test_input.shape[0],n_noise_data] )
-        all_test    = np.concatenate( (test_input,test_noise), axis=1 )
-        loss_acc    = generator.evaluate( all_test, test_target, batch_size )
-        test_loss  += [ loss_acc[0] ]
-        test_acc   += [ loss_acc[1] ]
+class WGAN():
   
-        # make plots every now and then
-        if e == 1 or e % 5 == 0:
+  def __init__(self):
 
-            epoch_dir = plots_dir+"epochs/"+str( '%06d' % e )+"/"
-            if not os.path.exists(epoch_dir) : os.makedirs(epoch_dir)
+    # read arguments
 
-            outputs_test  = generator.predict( all_test )
-            outputs_train = generator.predict( all_train )
+    parser = argparse.ArgumentParser(description='Job Parameters')
 
-            # make some plots of example generated output for this epoch
-         
-            RICH.plots( "gen_norm_outputs", pd.DataFrame(outputs_test,columns=target_names), epoch_dir )
-            outputs_test_raw = output_scaler.inverse_transform( outputs_test )
-            RICH.plots( "gen_raw_outputs", pd.DataFrame(outputs_test_raw,columns=target_names), epoch_dir )
+    parser.add_argument( '--name', type=str, default="PPtR1R2HitsR12EntryExit" )
+    
+    parser.add_argument( '--inputvars', type=str, nargs='+',
+                         default = [  'TrackP', 'TrackPt'
+                                      ,'NumRich1Hits', 'NumRich2Hits'
+                                      ,'TrackRich1EntryX', 'TrackRich1EntryY'
+                                      ,'TrackRich1ExitX', 'TrackRich1ExitY'
+                                      ,'TrackRich2EntryX', 'TrackRich2EntryY'
+                                      ,'TrackRich2ExitX', 'TrackRich2ExitY' ] )
+    
+    parser.add_argument( '--outputvars', type=str, nargs='+',
+                         default = ['RichDLLe', 'RichDLLk', 'RichDLLmu',
+                                    'RichDLLp', 'RichDLLd', 'RichDLLbt'] )
 
-            # output correlations
-            RICH.outputCorrs( "correlations", outputs_test, test_target.values, target_names, epoch_dir )
+    parser.add_argument( '--datadir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/data" )
+    parser.add_argument( '--outputdir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/output" )
+
+    parser.add_argument( '--nepochs', type=int, default="100000" )
+
+    parser.add_argument( '--datareadsize', type=int, default="4000000" )
+
+    parser.add_argument( '--batchsize', type=int, default="50000" )
+
+    parser.add_argument( '--ncriticpergen', type=int, default="15" )
+
+    parser.add_argument( '--ncriticlayers', type=int, default="10" )
+    parser.add_argument( '--ngeneratorlayers', type=int, default="10" )
+    parser.add_argument( '--leakrate', type=float, default="0.0" )
+    parser.add_argument( '--dropoutrate', type=float, default="0.0" )
+    
+    self.args,unparsed = parser.parse_known_args()
+    print( "Job arguments", self.args )
+
+    # parameters
+
+    # amount of noise to add to training data
+    self.NOISE_DIMENSIONS = 64
+
+    # Total input dimensions of generator (including noise)
+    self.GENERATOR_DIMENSIONS = self.NOISE_DIMENSIONS + len(self.args.inputvars)
+
+    # Num inputs to critic
+    self.CRITIC_DIMENSIONS = len(self.args.inputvars) + len(self.args.outputvars)
+
+    # optimiser
+    optimizer = RMSprop( lr = 0.00005 )
+
+    # Build and compile the critic
+    self.critic = self.build_critic()
+    self.critic.compile( loss      = self.wasserstein_loss,
+                         optimizer = optimizer,
+                         metrics   = ['accuracy'] ) 
+    
+    # Build the generator
+    self.generator = self.build_generator()
+
+    # Physics inputs
+    phys_inputs  = Input(shape=(len(self.args.inputvars),))
+    print("phys_inputs", phys_inputs )
+    
+    # Noise inputs
+    noise_inputs = Input(shape=(self.NOISE_DIMENSIONS,))
+    print("noise_inputs", noise_inputs )
+
+    # generator inputs
+    gen_inputs = [ phys_inputs, noise_inputs ]
+    
+    # Generator outputs
+    gen_outputs = self.generator( gen_inputs )
+    print( "gen_outputs", gen_outputs )
+
+    # For the combined model we will only train the generator
+    #self.critic.trainable = False
+
+    # The critic takes generated outputs + physics inputs as input
+    critic_output = self.critic( [ phys_inputs, gen_outputs ] )
+    print( "critic_output", critic_output )
+
+    # The combined model  (stacked generator and critic)
+    self.combined = Model( gen_inputs, critic_output )
+    self.combined.compile(loss      = self.wasserstein_loss,
+                          optimizer = optimizer,
+                          metrics   = ['accuracy'] )
+
+  def wasserstein_loss(self, y_true, y_pred):
+    return K.mean( y_true * y_pred )
+
+  def build_generator(self):
+
+    # physics inputs
+    phys_input = Input( shape=(len(self.args.inputvars),) )
+    phys_dense = Dense(64,)(phys_input)
+
+    # noise inputs
+    noise_input = Input( shape=(self.NOISE_DIMENSIONS,) )
+    noise_dense = Dense(64,)(noise_input)
+
+    # merge the two inputs
+    layers = concatenate([phys_dense,noise_dense])
+
+    # add the inner layers
+    for i in range(0,self.args.ngeneratorlayers) :
+      layers = Dense(128, activation='relu' )(layers)
+      if self.args.leakrate    > 0 : layers = LeakyReLU(self.args.leakrate)(layers)
+      if self.args.dropoutrate > 0 : layers = Dropout(self.args.dropoutrate)(layers)
+
+    # output layer
+    layers =  Dense(len(self.args.outputvars))(layers)
+
+    # build the model and return
+    generator = Model( inputs=[ phys_input, noise_input ], outputs = layers )
+    print( "Building Generator, #inputs=", generator.inputs )
+    generator.summary()
+    return multi_gpu_model( generator, gpus=3 )
+
+  def build_critic(self):
+
+    # https://keras.io/getting-started/functional-api-guide/
+
+    # physics inputs
+    phys_input = Input( shape=(len(self.args.inputvars),) )
+    phys_dense = Dense(64,)(phys_input)
+
+    # DLL inputs
+    dlls_input = Input( shape=(len(self.args.outputvars),) )
+    dlls_dense = Dense(64,)(dlls_input)
+
+    # merge the two inputs
+    layers = concatenate([phys_dense,dlls_dense])
+
+    # add the inner layers
+    for i in range(0,self.args.ncriticlayers) :
+      layers = Dense(128, activation='relu' )(layers)
+      if self.args.leakrate    > 0 : layers = LeakyReLU(self.args.leakrate)(layers)
+      if self.args.dropoutrate > 0 : layers = Dropout(self.args.dropoutrate)(layers)
+
+    # output layer (one variable)
+    layers = Dense(1)(layers)
+
+    # build the model and return
+    critic = Model( inputs=[ phys_input, dlls_input ], outputs = layers )
+    print( "Building Critic, #inputs=", critic.inputs )
+    critic.summary()
+    return multi_gpu_model( critic, gpus=3)
+
+  def train(self):
+
+    # Load the physics inputs
+    phys_input_raw = RICH.createLHCbData( self.args.inputvars,  
+                                          self.args.datareadsize, 'KAONS',
+                                          self.args.datadir )
+    print( "phys_input_raw", phys_input_raw.shape, '\n', phys_input_raw.tail() )
+    # Load the target outputs
+    dlls_output_raw = RICH.createLHCbData( self.args.outputvars,  
+                                          self.args.datareadsize, 'KAONS',
+                                          self.args.datadir )
+    print( "dlls_output_raw", dlls_output_raw.shape, '\n', dlls_output_raw.tail() )
+
+    # scale the data
+    print( "Scaling the data" )
+    ndataforscale = min( 1000000, phys_input_raw.shape[0] )
+    phys_scaler = RICH.getScaler( phys_input_raw.iloc[0:ndataforscale] )
+    phys_input  = pd.DataFrame( phys_scaler.transform(phys_input_raw),
+                                columns = phys_input_raw.columns, dtype=np.float32 )
+    print( "phys_input", phys_input.shape, '\n', phys_input.tail() )
+    dlls_scaler = RICH.getScaler( dlls_output_raw.iloc[0:ndataforscale] )
+    dlls_output = pd.DataFrame( dlls_scaler.transform(dlls_output_raw),
+                                columns = dlls_output_raw.columns, dtype=np.float32 )
+    print( "dlls_input", dlls_output.shape, '\n', dlls_output.tail() )
+    
+    # Adversarial ground truths
+    valid = -np.ones((self.args.batchsize, 1))
+    fake  =  np.ones((self.args.batchsize, 1))
+    
+    for epoch in tqdm(range(self.args.nepochs)):
+      
+      for _ in range(self.args.ncriticpergen):
         
-            # loss plots
-            plt.figure(figsize=(18,15))
-            plt.plot( run_epochs, train_loss, 'bo', label='Training Loss')
-            plt.plot( run_epochs, test_loss,   'b', label='Validation Loss')
-            plt.title('Training and validation loss')
-            plt.legend()
-            plt.savefig(epoch_dir+'loss.png')
-            plt.close()
+        # ---------------------
+        #  Train Critic
+        # ---------------------
+        
+        # Select a random batch of input
+        idx = np.random.randint( 0, phys_input.shape[0], self.args.batchsize )
+        phys_batch = phys_input.values[idx]
+        dlls_batch = dlls_output.values[idx]
+        
+        # Sample noise as generator input
+        noise_batch = np.random.normal(0, 1, (self.args.batchsize, self.NOISE_DIMENSIONS))
+          
+        # Generate a batch of new DLL values
+        dlls_gen = self.generator.predict( [ phys_batch, noise_batch ] )
+          
+        # Train the critic
+        #self.critic.trainable = True
+        #d_loss_real = self.critic.train_on_batch( [phys_batch,dlls_batch], valid)
+        #d_loss_fake = self.critic.train_on_batch( [phys_batch,dlls_gen], fake)
+        #d_loss = 0.5 * np.add(d_loss_fake, d_loss_real)
+          
+        # Clip critic weights
+        #for l in self.critic.layers:
+        #  weights = l.get_weights()
+        #  weights = [np.clip(w, -self.clip_value, self.clip_value) for w in weights]
+        #  l.set_weights(weights)
 
-            # accuracy plots
-            plt.figure(figsize=(18,15))
-            plt.plot( run_epochs, train_acc, 'bo', label='Training Accuracy')
-            plt.plot( run_epochs, test_acc,   'b', label='Validation Accuracy')
-            plt.title('Training and validation accuracy')
-            plt.legend()
-            plt.savefig(epoch_dir+'accuracy.png')
-            plt.close()
 
-            disc_bins = 100
+      # ---------------------
+      #  Train Generator
+      # ---------------------
+      
+      #self.critic.trainable = False
+      #g_loss = self.combined.train_on_batch( [phys_batch,noise_batch], valid )
+        
+      # Plot the progress
+      #print ("%d [D loss: %f] [G loss: %f]" % (epoch, 1 - d_loss[0], 1 - g_loss[0]))
 
-            # Discriminator output (test data)
-            disc_gen = discriminator.predict( outputs_test )
-            disc_tar = discriminator.predict( test_target  )
-            plt.figure(figsize=(18,15))
-            data = np.concatenate( [disc_gen,disc_tar], axis=1 ) 
-            plt.hist( data, disc_bins, density=True, histtype='step', label=['Generated','Target'] )
-            plt.title('Discriminator : Test Data')
-            plt.legend()
-            plt.savefig(epoch_dir+'discriminator-test.png')
-            plt.close()
 
-            # Discriminator output (train data)
-            disc_gen = discriminator.predict( outputs_train )
-            disc_tar = discriminator.predict( train_target  )
-            plt.figure(figsize=(18,15))
-            data = np.concatenate( [disc_gen,disc_tar], axis=1 ) 
-            plt.hist( data, disc_bins, density=True, histtype='step', label=['Generated','Target'] )
-            plt.title('Discriminator : Train Data')
-            plt.legend()
-            plt.savefig(epoch_dir+'discriminator-train.png')
-            plt.close()
-
-if __name__ == '__main__' :
-
-    # main full options
-    #maxData    = -1
-    #batch_size = 256
-    #epochs     = 500
-    #b_per_e    = 2000 
-
-    # medium options
-    maxData    = 100000
-    batch_size = 256
-    epochs     = 100
-    b_per_e    = 200
-
-    #train( epochs, b_per_e, batch_size, maxData )
-
-    # testing
-    train( 50, 100, 128, 10000 )
+if __name__ == '__main__':
+  
+  wgan = WGAN()
+  wgan.train()

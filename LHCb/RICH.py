@@ -23,10 +23,10 @@ def outputDirs( dir, clear = True ) :
     dirs = { "weights"    : dir+"weights/",
              "iterations" : dir+"iteration/",
              "summary"    : dir+"summary/",
-             "model"      : dir+"exported_model/",
+             "model"      : dir+"model/",
              "checkpoint" : dir+"checkpoint/" }
     if clear : 
-        for name in [ "iterations" ] :
+        for name in [ "model" ] :
             if os.path.exists(dirs[name]) : shutil.rmtree(dirs[name]) 
     return dirs
 
@@ -141,9 +141,9 @@ def outputCorrs( title, generated_out, true_out, names, dir = 'plots/' ):
         plt.savefig(dir+title+'.png')
         plt.close()
 
-def get_tf_dataset( dataset, batch_size, dtype = np.float32, seed = 9876 ):
+def get_tf_dataset( dataset, batch_size, dtype = np.float32 ):
     import tensorflow as tf
-    shuffler   = tf.contrib.data.shuffle_and_repeat(dataset.shape[0],seed=seed)
+    shuffler   = tf.contrib.data.shuffle_and_repeat(dataset.shape[0])
     suffled_ds = shuffler(tf.data.Dataset.from_tensor_slices(dataset))
     return suffled_ds.batch(batch_size).prefetch(1).make_one_shot_iterator().get_next()
  
