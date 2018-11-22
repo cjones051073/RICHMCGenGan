@@ -16,7 +16,7 @@ print( "Running on", platform.node() )
 
 parser = argparse.ArgumentParser(description='Job Parameters')
 
-parser.add_argument( '--name', type=str, default="PPtR1R2HitsR12EntryExit-NEW" )
+parser.add_argument( '--name', type=str, default="PPtR1R2HitsR12EntryExit" )
 
 parser.add_argument( '--outputdir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/output" )
 
@@ -147,7 +147,7 @@ with tf.device('/cpu:0'):
     print( "raw train data\n", readData.tail() )
 
   print ( "Scaling the validation data" )
-  data_val = pd.DataFrame( scaler.transform(val_raw), columns = val_raw.columns, dtype=np.float32 )
+  data_val = pd.DataFrame( scaler.transform(val_raw), columns = val_raw.columns,  dtype=np.float32 )
                                          
   # split into an independent sample for each GPU
   data_raw = RICH.splitDataFrame( readData, args.ngpus )
@@ -163,9 +163,9 @@ with tf.device('/cpu:0'):
     data_train.append(d_norm)
 
   # Add missing 'weights' columns. Not used, but might be useful in the future.
-  #weight_col = 'Weight'
-  #data_val[weight_col] = np.float32(1.0)
-  #for d in data_train : d[weight_col] = np.float32(1.0)
+  weight_col = 'Weight'
+  data_val[weight_col] = np.float32(1.0)
+  for d in data_train : d[weight_col] = np.float32(1.0)
 
   # Save critic and generator op calls
   gpu_gen_ops    = [ ]
@@ -185,8 +185,7 @@ with tf.device('/cpu:0'):
 
           # Build the critic and generator models
 
-          #n_input_layer = data_train[igpu].shape[1] - 1 # subtract one as weights not used
-          n_input_layer = data_train[igpu].shape[1]
+          n_input_layer = data_train[igpu].shape[1] - 1 # subtract one as weights not used
           print( "Building Critic, #inputs=", n_input_layer )
           critic_i = keras.models.Sequential()
           critic_i.add( keras.layers.InputLayer( [ n_input_layer ] ) )
@@ -211,68 +210,71 @@ with tf.device('/cpu:0'):
      
           # Create tensor data iterators
           print( "Creating data iterators" )
-
-          # lists of various views of the data, for independent samples
-          train_full       = [ ] # Primary data iterator. Target DLls and physics input. 
-                                 # input to critic
-          train_phys       = [ ] # physics input data to generator
-          target_dlls      = [ ] # target DLLs values
-          train_noise      = [ ] # noise input data to geneator
-          generator_inputs = [ ] # All inputs to the generator
-          generated_dlls   = [ ] # Generated DLL values
-          gen_critic_input = [ ] # Input to the critic for the generated DLLs
-
-          # reference data sample
-          train_ref = RICH.get_tf_dataset( data_train[igpu], BATCH_SIZE )
-
-          # create the data views for two independent samples
-          for sample in range(2) :
+          # everything, inputs and outputs
+          train_full_ = RICH.get_tf_dataset( data_train[igpu], BATCH_SIZE )
+          #train_full, w_full = train_full_[:,:-1], train_full_[:,-1]
+          train_full = train_full_[:,:-1]
   
-            # full data random iterator
-            train_full.append( RICH.get_tf_dataset( data_train[igpu], BATCH_SIZE ) )
-
-            # physics inputs to the networks
-            train_phys.append( train_full[-1][:,output_dim:] ) 
-
-            # target DLL values
-            target_dlls.append( train_full[-1][:,:output_dim] ) 
-
-            # input noise data
-            train_noise.append( tf.random_normal( [tf.shape(train_phys[-1])[0], NOISE_DIMENSIONS], 
-                                                  name='noise'+str(sample) ) )
-
-            # complete inputs to generator
-            generator_inputs.append( tf.concat([train_noise[-1],train_phys[-1]], axis=1) )
-
-            # generated output
-            generated_dlls.append( generator_i( generator_inputs[-1] ) )
-
-            # generated input to critic
-            gen_critic_input.append( tf.concat([generated_dlls[-1],train_phys[-1]], axis=1) )
-
-            if args.debug :
-              print( "Sample", sample )
-              print( "All data", train_full[-1].shape, "\n", train_full[-1].eval() )
-              print( "phys input", train_phys[-1].shape, "\n", train_phys[-1].eval() )
-              print( "target dlls", target_dlls[-1].shape, "\n", target_dlls[-1].eval() )
-              print( "noise input", train_noise[-1].shape, "\n", train_noise[-1].eval() )
-              print( "generator input", generator_inputs[-1].shape )
-              print( "generated dlls", generated_dlls[-1].shape )
-              print( "gen critic input", gen_critic_input[-1].shape )
-
+          # Inputs only, two independent random sets
+          train_x_1_all = RICH.get_tf_dataset( data_train[igpu].values, BATCH_SIZE )
+          #train_x_1_ = RICH.get_tf_dataset(data_train[igpu][train_names+[weight_col]].values, BATCH_SIZE)
+          #train_x_2_ = RICH.get_tf_dataset(data_train[igpu][train_names+[weight_col]].values, BATCH_SIZE)
+          #train_x_1_ = RICH.get_tf_dataset(data_train[igpu].values[:, output_dim:], BATCH_SIZE)
+          train_x_1_ =  train_x_1_all[:,output_dim:]
+          #train_x_1, w_x_1 = train_x_1_[:,:-1], train_x_1_[:,-1]
+          #train_x_2, w_x_2 = train_x_2_[:,:-1], train_x_2_[:,-1]
+          train_x_1         = train_x_1_[:,:-1]
+          train_x_1_targets = train_x_1_all[:,:output_dim]
+                   
+          train_x_2_        = RICH.get_tf_dataset( data_train[igpu].values[:, output_dim:], BATCH_SIZE )
+          train_x_2         = train_x_2_[:,:-1]
+ 
+          if args.debug : 
+            print( "train_full\n", train_full.shape, "\n", train_full.eval() )
+            print( "train_x_1\n",  train_x_1.shape, "\n", train_x_1.eval() )
+            print( "train_x_2\n",  train_x_2.shape, "\n", train_x_2.eval() )
+            #print( "w_x_1\n", w_x_1.shape, "\n", w_x_1.eval() )
+            #print( "w_x_2\n", w_x_2.shape, "\n", w_x_2.eval() )
+            print( "train_x_1_targets\n", train_x_1_targets.shape, "\n", train_x_1_targets.eval() )
+    
+          # Create noise data
+          print( "Creating noise data" )
+          noise_1 = tf.random_normal([tf.shape(train_x_1)[0], NOISE_DIMENSIONS], name='noise' )
+          noise_2 = tf.random_normal([tf.shape(train_x_2)[0], NOISE_DIMENSIONS], name='noise' )
+  
+          if args.debug :
+            print("noise_1\n", noise_1.shape, '\n', noise_1.eval() )
+            print("noise_2\n", noise_2.shape, '\n', noise_2.eval() )
+    
+          generated_y_1    = generator_i( tf.concat([noise_1, train_x_1], axis=1) )
+          generated_y_2    = generator_i( tf.concat([noise_2, train_x_2], axis=1) )
+  
+          generated_full_1 = tf.concat([generated_y_1, train_x_1], axis=1)
+          generated_full_2 = tf.concat([generated_y_2, train_x_2], axis=1)
+  
+          if args.debug :
+            print( "generated_y_1",   generated_y_1.shape )
+            print( "generated_y_2",   generated_y_2.shape )
+            print( "generated_full_1", generated_full_1.shape )
+            print( "generated_full_2", generated_full_2.shape )
+        
           def cramer_critic( x, y ):
             discriminated_x = critic_i(x)
             discriminated_y = critic_i(y)
-            return tf.norm( discriminated_x - discriminated_y, axis=1 ) - tf.norm( discriminated_x, axis=1 )
+            return tf.norm(discriminated_x - discriminated_y, axis=1) - tf.norm(discriminated_x, axis=1)
   
           # loss function for generator network (when weights are all 1)
-          generator_loss = tf.reduce_mean(cramer_critic( train_ref          , gen_critic_input[1]) 
-                                        - cramer_critic( gen_critic_input[0], gen_critic_input[1]) )
+          generator_loss = tf.reduce_mean(cramer_critic(train_full      , generated_full_2) 
+                                        - cramer_critic(generated_full_1, generated_full_2) )
+          # loss function for generator network (with weights)
+          #generator_loss = tf.reduce_mean(cramer_critic(train_full      , generated_full_2) * w_full * w_x_2
+          #                                - cramer_critic(generated_full_1, generated_full_2) * w_x_1  * w_x_2)
   
           with tf.name_scope("gradient_loss") :
-            alpha             = tf.random_uniform(shape=[tf.shape(train_ref)[0], 1], minval=0., maxval=1. )
-            interpolates      = alpha*train_ref + (1.-alpha)*gen_critic_input[0]
-            disc_interpolates = cramer_critic( interpolates, gen_critic_input[1] )
+            alpha             = tf.random_uniform(shape=[tf.shape(train_full)[0], 1],
+                                                  minval=0., maxval=1. )
+            interpolates      = alpha*train_full + (1.-alpha)*generated_full_1
+            disc_interpolates = cramer_critic( interpolates, generated_full_2 )
             gradients         = tf.gradients(disc_interpolates, [interpolates])[0]
             slopes            = tf.norm(tf.reshape(gradients, [tf.shape(gradients)[0], -1]), axis=1)
             gradient_penalty  = tf.reduce_mean(tf.square(tf.maximum(tf.abs(slopes) - 1, 0)))
@@ -284,14 +286,14 @@ with tf.device('/cpu:0'):
           
           optimizer       = tf.train.RMSPropOptimizer(learning_rate)
           #optimizer       = tf.train.AdamOptimizer(learning_rate)
-
+          
           critic_train_op_i = optimizer.minimize( critic_loss, 
                                                   var_list=critic_i.trainable_weights )
           gpu_critic_ops.append( critic_train_op_i )
-          
-          gen_train_op_i = tf.group( optimizer.minimize( generator_loss,
-                                                         var_list=generator_i.trainable_weights ),
-                                     tf.assign_add(tf_iter,1) )
+
+          gen_train_op_i    = tf.group( optimizer.minimize( generator_loss,
+                                                            var_list=generator_i.trainable_weights ),
+                                        tf.assign_add(tf_iter,1) )
           gpu_gen_ops.append( gen_train_op_i )
   
           if args.debug :
@@ -302,12 +304,12 @@ with tf.device('/cpu:0'):
             print("gradient_penalty", gradient_penalty.shape )
 
           # compute diff between target and trained generator output
-          target_diff = generated_dlls[0] - target_dlls[0]
+          target_diff = generated_y_1 - train_x_1_targets
           if args.debug :
             print( "target_diff\n", target_diff.shape )
 
           # critic accuracy
-          correct_prediction = tf.equal( tf.argmax(generated_dlls[0],1), tf.argmax(target_dlls[0],1) )
+          correct_prediction = tf.equal( tf.argmax(generated_y_1,1), tf.argmax(train_x_1_targets,1) )
           critic_accuracy    = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
           
           tf.summary.scalar("Critic_Loss",     tf.reshape(critic_loss, []))
@@ -317,7 +319,7 @@ with tf.device('/cpu:0'):
           tf.summary.scalar("Critic_Accuracy", critic_accuracy)
           # Add histograms for generated output
           for iname in range(output_dim) :
-            tf.summary.histogram( target_names[iname], generated_dlls[0][:,iname] )
+            tf.summary.histogram( target_names[iname], generated_y_1[:,iname] )
             tf.summary.histogram( target_names[iname]+"-Diff", target_diff[:,iname] )
 
   # list over weight merging ops
@@ -355,14 +357,11 @@ with tf.device('/cpu:0'):
     print( "raw data val\n", val_raw.tail() )
 
   VALIDATION_SIZE   = min( args.validationsize, data_val.shape[0] )
-  # make three independent samples
-  validation_np     = [ data_val.sample(VALIDATION_SIZE),
-                        data_val.sample(VALIDATION_SIZE),
-                        data_val.sample(VALIDATION_SIZE) ]
+  validation_np     = data_val.sample(VALIDATION_SIZE)
   validation_np_raw = val_raw.sample(VALIDATION_SIZE)
 
   if args.debug :
-    print( "validation_np\n", validation_np[0].shape, "\n", validation_np[0].tail() )
+    print( "validation_np\n", validation_np.shape, "\n", validation_np.tail() )
     
   # number outputs from generator
   output_dim = len(target_names)
@@ -411,7 +410,7 @@ with tf.Session(config=tf_config) as sess:
   if not ( args.batchmode or args.debug ) : its = tqdm(its)
   for i in its :
 
-    # read the global step count
+    # read the current global it
     g_it = sess.run( g_step )
 
     # skip run iterations
@@ -423,12 +422,12 @@ with tf.Session(config=tf_config) as sess:
     sess.run( gpu_gen_ops )
     sess.run( increment_global_step_op )
     if args.debug : print( "Finish training" )
-   
+  
     # write the summary data at given rate
     if i % args.trainwriteinterval == 0 :
       
       if args.debug : print( "Start train write" )
-      train_writer.add_summary(train_summary,g_it)
+      train_writer.add_summary(train_summary, g_it)
       if args.debug : print( "Finish train write" )
    
     # merge the GPU info at a given rate
@@ -447,18 +446,20 @@ with tf.Session(config=tf_config) as sess:
       it_dir = dirs["iterations"]+str( '%06d' % i )+"/"
       if not os.path.exists(it_dir) : os.makedirs(it_dir)
 
-      test_summary, test_generated = sess.run( [merged_summary,generated_dlls[0]], {
-         train_full[0] : validation_np[0].values,
-         train_full[1] : validation_np[1].values,
-         train_ref     : validation_np[2].values } )
+      #clear_output(False)
+      test_summary, test_generated = sess.run( [merged_summary, generated_y_1], {
+          train_x_1_    : validation_np.values[:, output_dim:],
+          train_x_2_    : validation_np.values[:, output_dim:],
+          train_x_1_all : validation_np.values,
+          train_full_   : validation_np.values } )
       
       # Summary and weights
-      test_writer.add_summary(test_summary, g_it )
-      weights_saver.save( sess, MODEL_WEIGHTS_FILE, global_step = g_step )
+      test_writer.add_summary(test_summary, g_it)
+      weights_saver.save( sess, MODEL_WEIGHTS_FILE )
       
       # Normalised output vars
       RICH.plot2( "NormalisedDLLs", 
-                  [ validation_np[0][target_names].values, test_generated ],
+                  [ validation_np[target_names].values, test_generated ],
                   target_names, ['Target','Generated'], it_dir )
       
       # raw generated DLLs
@@ -468,7 +469,7 @@ with tf.Session(config=tf_config) as sess:
                   target_names, ['Target','Generated'], it_dir )
       
       # DLL correlations
-      RICH.outputCorrs( "correlations", test_generated, validation_np[0][target_names].values,
+      RICH.outputCorrs( "correlations", test_generated, validation_np[target_names].values,
                         target_names, it_dir )
 
       if args.debug : print( "Finish validation" )
@@ -479,7 +480,7 @@ with tf.Session(config=tf_config) as sess:
   weights_saver.restore( sess, MODEL_WEIGHTS_FILE )
   sess.graph._unsafe_unfinalize()
   tf.saved_model.simple_save(sess, dirs["model"],
-                             inputs={"x": train_phys[0]}, outputs={"dlls": generated_dlls[0]})
+                             inputs={"x": train_x_1}, outputs={"dlls": generated_y_1})
   tf.get_default_graph().finalize()
     
 #from sklearn.externals import joblib
