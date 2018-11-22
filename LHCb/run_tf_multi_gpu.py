@@ -136,6 +136,8 @@ with tf.device('/cpu:0'):
   # save the generator and critics
   gpu_critics    = [ ]
   gpu_generators = [ ]
+  # accuracy ops
+  gen_acc_ops    = [ ]
 
   with tf.variable_scope(tf.get_variable_scope()):
     for igpu in range(args.ngpus):
@@ -273,15 +275,25 @@ with tf.device('/cpu:0'):
           if args.debug :
             print( "target_diff\n", target_diff.shape )
 
+          # generator accuracy
+          gen_acc, gen_acc_op = tf.metrics.accuracy( tf.argmax(generated_dlls[0],1) , 
+                                                     tf.argmax(target_dlls[0]   ,1) )
+          gen_acc_ops.append( gen_acc_op )
+          dll_equal = tf.equal( tf.argmax(generated_dlls[0],1) , 
+                                tf.argmax(target_dlls[0]   ,1) )
+          gen_acc_2 = tf.reduce_mean( tf.cast(dll_equal,tf.float32) )
           # critic accuracy
-          correct_prediction = tf.equal( tf.argmax(generated_dlls[0],1), tf.argmax(target_dlls[0],1) )
-          critic_accuracy    = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
+          cramer_equal = tf.equal( tf.argmax( critic_i(train_full[0])       , 1 ) ,
+                                   tf.argmax( critic_i(gen_critic_input[0]) , 1 ) )
+          critic_acc = tf.reduce_mean( tf.cast(cramer_equal,tf.float32) )
           
-          tf.summary.scalar("Critic_Loss",     tf.reshape(critic_loss, []))
-          tf.summary.scalar("Generator_Loss",  tf.reshape(generator_loss, []))
-          tf.summary.scalar("Learning_Rate",   learning_rate)
-          tf.summary.scalar("Lambda",          lambda_tf)
-          tf.summary.scalar("Critic_Accuracy", critic_accuracy)
+          tf.summary.scalar("Critic_Loss",        tf.reshape(critic_loss,[]) )
+          tf.summary.scalar("Generator_Loss",     tf.reshape(generator_loss,[]) )
+          tf.summary.scalar("Learning_Rate",      learning_rate )
+          tf.summary.scalar("Lambda",             lambda_tf )
+          tf.summary.scalar("Generator_Accuracy_1", gen_acc )
+          tf.summary.scalar("Generator_Accuracy_2", gen_acc_2 )
+          tf.summary.scalar("Critic_Accuracy",      critic_acc )
           # Add histograms for generated output
           for iname in range(output_dim) :
             tf.summary.histogram( args.outputvars[iname], generated_dlls[0][:,iname] )
@@ -349,7 +361,8 @@ with tf.device('/cpu:0'):
 
   # Summary and weights writers
   merged_summary     = tf.summary.merge_all()
-  var_init           = tf.global_variables_initializer()
+  var_init_glo       = tf.global_variables_initializer()
+  var_init_loc       = tf.local_variables_initializer()
   weights_saver      = tf.train.Saver( name = args.name, max_to_keep = 3 )  
   MODEL_WEIGHTS_FILE = dirs["weights"]+"%s.ckpt" % MODEL_NAME
   train_writer       = tf.summary.FileWriter(os.path.join(dirs["summary"],"train"))
@@ -375,7 +388,8 @@ with tf.device('/cpu:0'):
 with tf.Session(config=tf_config) as sess:
 
   # Initialise
-  sess.run(var_init)
+  sess.run(var_init_loc)
+  sess.run(var_init_glo)
   
   # Try and restore a saved weights file
   try:
@@ -397,7 +411,7 @@ with tf.Session(config=tf_config) as sess:
 
     if args.debug : print( "Start training" )
     for j in range(critic_policy(i)) : sess.run( gpu_critic_ops )
-    sess.run( gpu_gen_ops + [ increment_global_step_op ] )
+    sess.run( gpu_gen_ops + gen_acc_ops + [ increment_global_step_op ] )
     train_summary = sess.run( merged_summary )
     if args.debug : print( "Finish training" )
    
@@ -424,11 +438,16 @@ with tf.Session(config=tf_config) as sess:
       it_dir = dirs["iterations"]+str( '%06d' % i )+"/"
       if not os.path.exists(it_dir) : os.makedirs(it_dir)
 
-      test_summary, test_generated = sess.run( [merged_summary,generated_dlls[0]], {
-         train_full[0] : validation_np[0].values,
-         train_full[1] : validation_np[1].values,
-         train_ref     : validation_np[2].values } )
-      
+      test_summary, test_generated = sess.run( [ merged_summary,
+                                                 generated_dlls[0] ], {
+        train_full[0]  : validation_np[0].values,
+        train_full[1]  : validation_np[1].values,
+        train_phys[0]  : validation_np[0].values[:,output_dim:],
+        train_phys[1]  : validation_np[1].values[:,output_dim:],
+        target_dlls[0] : validation_np[0].values[:,:output_dim],
+        target_dlls[1] : validation_np[1].values[:,:output_dim],
+        train_ref      : validation_np[2].values } )
+
       # Summary and weights
       test_writer.add_summary( test_summary, g_it )
       weights_saver.save( sess, MODEL_WEIGHTS_FILE )
@@ -451,7 +470,7 @@ with tf.Session(config=tf_config) as sess:
       if args.debug : print( "Finish validation" )
 
 with tf.Session(config=tf_config) as sess:
-  sess.run(var_init)
+  sess.run(var_init_glo)
   weights_saver.restore( sess, MODEL_WEIGHTS_FILE )
   sess.graph._unsafe_unfinalize()
   tf.saved_model.simple_save(sess, dirs["model"],
