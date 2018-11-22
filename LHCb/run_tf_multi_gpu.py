@@ -59,9 +59,6 @@ parser.add_argument( '--outputvars', type=str, nargs='+',
                      default = ['RichDLLe', 'RichDLLk', 'RichDLLmu',
                                 'RichDLLp', 'RichDLLd', 'RichDLLbt'] )
 
-parser.add_argument( '--batchmode', action='store_true' )
-parser.set_defaults(batchmode=False)
-
 parser.add_argument( '--debug', action='store_true' )
 parser.set_defaults(debug=False)
 
@@ -87,18 +84,6 @@ if args.debug : sess = tf.InteractiveSession()
 RNDM_SEED = 12345
 np.random.seed(RNDM_SEED)
 tf.set_random_seed(RNDM_SEED)
-
-if not args.debug and platform.node() == 'gorfrog' :
-  print("Using GPU options")
-  tf_config = tf.ConfigProto( gpu_options = tf.GPUOptions(allow_growth=False),
-                              allow_soft_placement = True )
-else:
-  tf_config = tf.ConfigProto()
-tf_config.log_device_placement         = True
-tf_config.intra_op_parallelism_threads = 16
-tf_config.inter_op_parallelism_threads = 16
-
-# Job size parameters
 
 # number outputs from generator
 output_dim = len(args.outputvars)
@@ -144,11 +129,6 @@ with tf.device('/cpu:0'):
     if args.debug : 
       print( "norm train data\n", d_norm.shape, "\n", d_norm.tail() )
     data_train.append(d_norm)
-
-  # Add missing 'weights' columns. Not used, but might be useful in the future.
-  #weight_col = 'Weight'
-  #data_val[weight_col] = np.float32(1.0)
-  #for d in data_train : d[weight_col] = np.float32(1.0)
 
   # Save critic and generator op calls
   gpu_gen_ops    = [ ]
@@ -199,6 +179,9 @@ with tf.device('/cpu:0'):
           # Create tensor data iterators
           print( "Creating data iterators" )
 
+          # reference data sample
+          train_ref = RICH.get_tf_dataset( data_train[igpu], args.batchsize )
+
           # lists of various views of the data, for independent samples
           train_full       = [ ] # Primary data iterator. Target DLls and physics input. 
                                  # input to critic
@@ -208,9 +191,6 @@ with tf.device('/cpu:0'):
           generator_inputs = [ ] # All inputs to the generator
           generated_dlls   = [ ] # Generated DLL values
           gen_critic_input = [ ] # Input to the critic for the generated DLLs
-
-          # reference data sample
-          train_ref = RICH.get_tf_dataset( data_train[igpu], args.batchsize )
 
           # create the data views for two independent samples
           for sample in range(2) :
@@ -253,8 +233,8 @@ with tf.device('/cpu:0'):
             return tf.norm( discriminated_x - discriminated_y, axis=1 ) - tf.norm( discriminated_x, axis=1 )
   
           # loss function for generator network (when weights are all 1)
-          generator_loss = tf.reduce_mean(cramer_critic( train_ref          , gen_critic_input[1]) 
-                                        - cramer_critic( gen_critic_input[0], gen_critic_input[1]) )
+          generator_loss = tf.reduce_mean( cramer_critic( train_ref          , gen_critic_input[1]) 
+                                         - cramer_critic( gen_critic_input[0], gen_critic_input[1]) )
   
           with tf.name_scope("gradient_loss") :
             alpha             = tf.random_uniform(shape=[tf.shape(train_ref)[0], 1], minval=0., maxval=1. )
@@ -315,7 +295,7 @@ with tf.device('/cpu:0'):
   for models in [ gpu_critics, gpu_generators ] : 
 
     # loop over the shared weights for each model in this list
-    # assume all the same so use the [0] entry.
+    # All have the same structure so use the first entry to get the number.
     for iw in range( len(models[0].trainable_weights) ) :
 
       # choose the GPU for this op
@@ -367,22 +347,31 @@ with tf.device('/cpu:0'):
   RICH.plots1( "output_norm", data_train[0][args.outputvars], plots_dir )
   RICH.plots1( "inputs_norm", data_train[0][args.inputvars],  plots_dir )
 
-  merged_summary = tf.summary.merge_all()
-
-  var_init      = tf.global_variables_initializer()
-  weights_saver = tf.train.Saver()
-  tf.get_default_graph().finalize()
-  
+  # Summary and weights writers
+  merged_summary     = tf.summary.merge_all()
+  var_init           = tf.global_variables_initializer()
+  weights_saver      = tf.train.Saver( name = args.name, max_to_keep = 3 )  
   MODEL_WEIGHTS_FILE = dirs["weights"]+"%s.ckpt" % MODEL_NAME
   train_writer       = tf.summary.FileWriter(os.path.join(dirs["summary"],"train"))
   test_writer        = tf.summary.FileWriter(os.path.join(dirs["summary"],"test"))
 
-  # if debug, abort before starting training..
-  if args.debug : sys.exit(0)
-
   # functor to give the number of training runs per iteration
   critic_policy = RICH.critic_policy(args.niterations)
 
+  # Configuration
+  tf_config = tf.ConfigProto( gpu_options = tf.GPUOptions(allow_growth=False),
+                              allow_soft_placement = True,
+                              log_device_placement = True,
+                              intra_op_parallelism_threads = 16,
+                              inter_op_parallelism_threads = 16 )
+
+  # Finalise the graph for the run
+  tf.get_default_graph().finalize()
+
+  # if debug, abort before starting training..
+  if args.debug : sys.exit(0)
+
+# Start the session ....
 with tf.Session(config=tf_config) as sess:
 
   # Initialise
@@ -390,14 +379,14 @@ with tf.Session(config=tf_config) as sess:
   
   # Try and restore a saved weights file
   try:
-    weights_saver.restore(sess, MODEL_WEIGHTS_FILE)
+    weights_saver.restore( sess, MODEL_WEIGHTS_FILE )
     print("Restored weights from",MODEL_WEIGHTS_FILE)
   except tf.errors.NotFoundError:
-    print("Can't restore parameters: no file with weights")
+    print("Weights file not found from",MODEL_WEIGHTS_FILE)
   
   # Do the iterations
   its = range(1,args.niterations+1)
-  if not ( args.batchmode or args.debug ) : its = tqdm(its)
+  if not args.debug : its = tqdm(its)
   for i in its :
 
     # read the global step count
@@ -408,16 +397,15 @@ with tf.Session(config=tf_config) as sess:
 
     if args.debug : print( "Start training" )
     for j in range(critic_policy(i)) : sess.run( gpu_critic_ops )
+    sess.run( gpu_gen_ops + [ increment_global_step_op ] )
     train_summary = sess.run( merged_summary )
-    sess.run( gpu_gen_ops )
-    sess.run( increment_global_step_op )
     if args.debug : print( "Finish training" )
    
     # write the summary data at given rate
     if i % args.trainwriteinterval == 0 :
       
       if args.debug : print( "Start train write" )
-      train_writer.add_summary(train_summary,g_it)
+      train_writer.add_summary( train_summary, g_it )
       if args.debug : print( "Finish train write" )
    
     # merge the GPU info at a given rate
@@ -442,8 +430,8 @@ with tf.Session(config=tf_config) as sess:
          train_ref     : validation_np[2].values } )
       
       # Summary and weights
-      test_writer.add_summary(test_summary, g_it )
-      weights_saver.save( sess, MODEL_WEIGHTS_FILE, global_step = g_step )
+      test_writer.add_summary( test_summary, g_it )
+      weights_saver.save( sess, MODEL_WEIGHTS_FILE )
       
       # Normalised output vars
       RICH.plot2( "NormalisedDLLs", 
@@ -461,7 +449,6 @@ with tf.Session(config=tf_config) as sess:
                         args.outputvars, it_dir )
 
       if args.debug : print( "Finish validation" )
-      
 
 with tf.Session(config=tf_config) as sess:
   sess.run(var_init)
