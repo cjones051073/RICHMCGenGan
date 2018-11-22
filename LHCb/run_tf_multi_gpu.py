@@ -1,13 +1,11 @@
 #! /usr/bin/env python3
 
-import numpy as np
+import os, sys, platform, argparse
 import matplotlib as mpl
 mpl.use('Agg')
-#import matplotlib.pyplot as plt
-import os, sys, platform
+import numpy as np
 from tqdm import tqdm
 import RICH
-import argparse
 import keras
 from sklearn.model_selection import train_test_split
 import pandas as pd
@@ -16,9 +14,10 @@ print( "Running on", platform.node() )
 
 parser = argparse.ArgumentParser(description='Job Parameters')
 
-parser.add_argument( '--name', type=str, default="PPtR1R2HitsR12EntryExit-NEW" )
+parser.add_argument( '--name', type=str, default="PPtR1R2HitsR12EntryExit" )
 
 parser.add_argument( '--outputdir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/output" )
+parser.add_argument( '--datadir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/data" )
 
 parser.add_argument( '--datareadsize', type=int, default="4000000" )
 
@@ -35,14 +34,18 @@ parser.add_argument( '--trainwriteinterval', type=int, default="50" )
 parser.add_argument( '--ngpus', type=int, default="3" )
 parser.add_argument( '--gpumergeinterval', type=int, default="100" )
 
-parser.add_argument( '--datadir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/data" )
+parser.add_argument( '--noisedims', type=int, default="64" )
 
 parser.add_argument( '--ncriticlayers', type=int, default="10" )
-parser.add_argument( '--ngeneratorlayers', type=int, default="10" )
-
-parser.add_argument( '--leakrate', type=float, default="0.0" )
-parser.add_argument( '--dropoutrate', type=float, default="0.0" )
+parser.add_argument( '--criticinnerdim', type=int, default="128" )
+parser.add_argument( '--criticleakrate', type=float, default="0.0" )
+parser.add_argument( '--criticdropoutrate', type=float, default="0.0" )
 parser.add_argument( '--cramerdim', type=int, default="256" )
+
+parser.add_argument( '--ngeneratorlayers', type=int, default="10" )
+parser.add_argument( '--generatorinnerdim', type=int, default="128" )
+parser.add_argument( '--generatorleakrate', type=float, default="0.0" )
+parser.add_argument( '--generatordropoutrate', type=float, default="0.0" )
 
 parser.add_argument( '--inputvars', type=str, nargs='+',
                      default = [  'TrackP', 'TrackPt'
@@ -65,12 +68,11 @@ parser.set_defaults(debug=False)
 args,unparsed = parser.parse_known_args()
 print( "Job arguments", args )
 
-MODEL_NAME          = args.name
-
-if args.dropoutrate > 0 : MODEL_NAME += "-Drop"+str(args.dropoutrate)
-if args.leakrate    > 0 : MODEL_NAME += "-Leak"+str(args.leakrate)
-
-TOTAL_ITERATIONS    = args.niterations
+MODEL_NAME = args.name
+if args.criticdropoutrate    > 0 : MODEL_NAME += "-CrtDrop"+str(args.criticdropoutrate)
+if args.criticleakrate       > 0 : MODEL_NAME += "-CrtLeak"+str(args.criticleakrate)
+if args.generatordropoutrate > 0 : MODEL_NAME += "-GenDrop"+str(args.generatordropoutrate)
+if args.generatorleakrate    > 0 : MODEL_NAME += "-GenLeak"+str(args.generatorleakrate)
 
 if args.debug :
   os.environ["CUDA_VISIBLE_DEVICES"]="-1"
@@ -89,7 +91,7 @@ tf.set_random_seed(RNDM_SEED)
 if not args.debug and platform.node() == 'gorfrog' :
   print("Using GPU options")
   tf_config = tf.ConfigProto( gpu_options = tf.GPUOptions(allow_growth=False),
-                              allow_soft_placement = False )
+                              allow_soft_placement = True )
 else:
   tf_config = tf.ConfigProto()
 tf_config.log_device_placement         = True
@@ -98,30 +100,11 @@ tf_config.inter_op_parallelism_threads = 16
 
 # Job size parameters
 
-BATCH_SIZE         = args.batchsize
-maxData            = args.datareadsize
-
-CRAMER_DIM         = args.cramerdim
-N_LAYERS_CRITIC    = args.ncriticlayers
-N_LAYERS_GENERATOR = args.ngeneratorlayers
-
-LEAK_RATE          = args.leakrate
-DROPOUT_RATE       = args.dropoutrate
-
-# inputs
-train_names = args.inputvars 
-
-# names for target data
-target_names = args.outputvars 
-
 # number outputs from generator
-output_dim = len(target_names)
-
-# amount of noise to add to training data
-NOISE_DIMENSIONS = 64
+output_dim = len(args.outputvars)
 
 # Total input dimensions of generator (including noise)
-GENERATOR_DIMENSIONS = NOISE_DIMENSIONS + len(train_names)
+GENERATOR_DIMENSIONS = args.noisedims + len(args.inputvars)
 
 with tf.device('/cpu:0'):
 
@@ -131,15 +114,15 @@ with tf.device('/cpu:0'):
   increment_global_step_op = tf.assign(g_step, g_step+1)
 
   # read data from file
-  readData = RICH.createLHCbData( target_names+train_names,  
-                                  maxData, 'KAONS',
+  readData = RICH.createLHCbData( args.outputvars + args.inputvars,  
+                                  args.datareadsize, 'KAONS',
                                   args.datadir )
 
   # create data scaler
   ndataforscale = min( 1000000, readData.shape[0] )
   scaler     = RICH.getScaler( readData.iloc[0:ndataforscale] )
   #scaler     = RICH.getScaler( readData )
-  dll_scaler = RICH.getScaler( readData[target_names].iloc[0:ndataforscale] )
+  dll_scaler = RICH.getScaler( readData[args.outputvars].iloc[0:ndataforscale] )
 
   # split off the validation sample
   readData, val_raw = train_test_split( readData, test_size=args.valfrac, random_state=42 )
@@ -190,21 +173,25 @@ with tf.device('/cpu:0'):
           print( "Building Critic, #inputs=", n_input_layer )
           critic_i = keras.models.Sequential()
           critic_i.add( keras.layers.InputLayer( [ n_input_layer ] ) )
-          for i in range(0,N_LAYERS_CRITIC) :
-            critic_i.add( keras.layers.Dense(128, activation='relu' ) )
-            if LEAK_RATE    > 0 : critic_i.add( keras.layers.LeakyReLU(LEAK_RATE) )
-            if DROPOUT_RATE > 0 : critic_i.add( keras.layers.Dropout(DROPOUT_RATE) )
-          critic_i.add( keras.layers.Dense(CRAMER_DIM) )
+          for i in range(0,args.ncriticlayers) :
+            critic_i.add( keras.layers.Dense(args.criticinnerdim, activation='relu' ) )
+            if args.criticleakrate    > 0 : 
+              critic_i.add( keras.layers.LeakyReLU(args.criticleakrate) )
+            if args.criticdropoutrate > 0 : 
+              critic_i.add( keras.layers.Dropout(args.criticdropoutrate) )
+          critic_i.add( keras.layers.Dense(args.cramerdim) )
           critic_i.summary()
           gpu_critics.append(critic_i)
     
           print( "Building Generator, #inputs=", GENERATOR_DIMENSIONS )
           generator_i = keras.models.Sequential()
           generator_i.add( keras.layers.InputLayer( [GENERATOR_DIMENSIONS] ) )
-          for i in range(0,N_LAYERS_GENERATOR) :
-            generator_i.add( keras.layers.Dense(128, activation='relu' ) )
-            if LEAK_RATE    > 0 : generator_i.add( keras.layers.LeakyReLU(LEAK_RATE) )
-            #if DROPOUT_RATE > 0 : generator_i.add( keras.layers.Dropout(DROPOUT_RATE) )
+          for i in range(0,args.ngeneratorlayers) :
+            generator_i.add( keras.layers.Dense(args.generatorinnerdim, activation='relu' ) )
+            if args.generatorleakrate    > 0 : 
+              generator_i.add( keras.layers.LeakyReLU(args.generatorleakrate) )
+            if args.generatordropoutrate > 0 : 
+              generator_i.add( keras.layers.Dropout(args.generatordropoutrate) )
           generator_i.add( keras.layers.Dense(output_dim) )
           generator_i.summary()
           gpu_generators.append(generator_i)
@@ -223,13 +210,13 @@ with tf.device('/cpu:0'):
           gen_critic_input = [ ] # Input to the critic for the generated DLLs
 
           # reference data sample
-          train_ref = RICH.get_tf_dataset( data_train[igpu], BATCH_SIZE )
+          train_ref = RICH.get_tf_dataset( data_train[igpu], args.batchsize )
 
           # create the data views for two independent samples
           for sample in range(2) :
   
             # full data random iterator
-            train_full.append( RICH.get_tf_dataset( data_train[igpu], BATCH_SIZE ) )
+            train_full.append( RICH.get_tf_dataset( data_train[igpu], args.batchsize ) )
 
             # physics inputs to the networks
             train_phys.append( train_full[-1][:,output_dim:] ) 
@@ -238,7 +225,7 @@ with tf.device('/cpu:0'):
             target_dlls.append( train_full[-1][:,:output_dim] ) 
 
             # input noise data
-            train_noise.append( tf.random_normal( [tf.shape(train_phys[-1])[0], NOISE_DIMENSIONS], 
+            train_noise.append( tf.random_normal( [tf.shape(train_phys[-1])[0], args.noisedims], 
                                                   name='noise'+str(sample) ) )
 
             # complete inputs to generator
@@ -317,8 +304,8 @@ with tf.device('/cpu:0'):
           tf.summary.scalar("Critic_Accuracy", critic_accuracy)
           # Add histograms for generated output
           for iname in range(output_dim) :
-            tf.summary.histogram( target_names[iname], generated_dlls[0][:,iname] )
-            tf.summary.histogram( target_names[iname]+"-Diff", target_diff[:,iname] )
+            tf.summary.histogram( args.outputvars[iname], generated_dlls[0][:,iname] )
+            tf.summary.histogram( args.outputvars[iname]+"-Diff", target_diff[:,iname] )
 
   # list over weight merging ops
   weight_merge_ops = [ ]
@@ -360,12 +347,14 @@ with tf.device('/cpu:0'):
                         data_val.sample(VALIDATION_SIZE),
                         data_val.sample(VALIDATION_SIZE) ]
   validation_np_raw = val_raw.sample(VALIDATION_SIZE)
+  del data_val
+  del val_raw
 
   if args.debug :
     print( "validation_np\n", validation_np[0].shape, "\n", validation_np[0].tail() )
     
   # number outputs from generator
-  output_dim = len(target_names)
+  output_dim = len(args.outputvars)
 
   # Output directories
   plots_dir = args.outputdir+"/"+MODEL_NAME+"/"
@@ -373,10 +362,10 @@ with tf.device('/cpu:0'):
   print ( "Output dir", plots_dir )
 
   # Make some input / output plots
-  RICH.plots1( "output_raw",  data_raw[0][target_names],   plots_dir )
-  RICH.plots1( "inputs_raw",  data_raw[0][train_names],    plots_dir )
-  RICH.plots1( "output_norm", data_train[0][target_names], plots_dir )
-  RICH.plots1( "inputs_norm", data_train[0][train_names],  plots_dir )
+  RICH.plots1( "output_raw",  data_raw[0][args.outputvars],   plots_dir )
+  RICH.plots1( "inputs_raw",  data_raw[0][args.inputvars],    plots_dir )
+  RICH.plots1( "output_norm", data_train[0][args.outputvars], plots_dir )
+  RICH.plots1( "inputs_norm", data_train[0][args.inputvars],  plots_dir )
 
   merged_summary = tf.summary.merge_all()
 
@@ -392,7 +381,7 @@ with tf.device('/cpu:0'):
   if args.debug : sys.exit(0)
 
   # functor to give the number of training runs per iteration
-  critic_policy = RICH.critic_policy(TOTAL_ITERATIONS)
+  critic_policy = RICH.critic_policy(args.niterations)
 
 with tf.Session(config=tf_config) as sess:
 
@@ -407,7 +396,7 @@ with tf.Session(config=tf_config) as sess:
     print("Can't restore parameters: no file with weights")
   
   # Do the iterations
-  its = range(1,TOTAL_ITERATIONS+1)
+  its = range(1,args.niterations+1)
   if not ( args.batchmode or args.debug ) : its = tqdm(its)
   for i in its :
 
@@ -458,18 +447,18 @@ with tf.Session(config=tf_config) as sess:
       
       # Normalised output vars
       RICH.plot2( "NormalisedDLLs", 
-                  [ validation_np[0][target_names].values, test_generated ],
-                  target_names, ['Target','Generated'], it_dir )
+                  [ validation_np[0][args.outputvars].values, test_generated ],
+                  args.outputvars, ['Target','Generated'], it_dir )
       
       # raw generated DLLs
       test_generated_raw = dll_scaler.inverse_transform( test_generated )
       RICH.plot2( "RawDLLs", 
-                  [ validation_np_raw[target_names].values, test_generated_raw ],
-                  target_names, ['Target','Generated'], it_dir )
+                  [ validation_np_raw[args.outputvars].values, test_generated_raw ],
+                  args.outputvars, ['Target','Generated'], it_dir )
       
       # DLL correlations
-      RICH.outputCorrs( "correlations", test_generated, validation_np[0][target_names].values,
-                        target_names, it_dir )
+      RICH.outputCorrs( "correlations", test_generated, validation_np[0][args.outputvars].values,
+                        args.outputvars, it_dir )
 
       if args.debug : print( "Finish validation" )
       
