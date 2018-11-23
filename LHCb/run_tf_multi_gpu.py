@@ -14,7 +14,7 @@ print( "Running on", platform.node() )
 
 parser = argparse.ArgumentParser(description='Job Parameters')
 
-parser.add_argument( '--name', type=str, default="PPtR1R2HitsR12EntryExit" )
+parser.add_argument( '--name', type=str, default="" )
 
 parser.add_argument( '--outputdir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/output" )
 parser.add_argument( '--datadir', type=str, default="/home/jonesc/Projects/RICHMCGenGan/data" )
@@ -47,6 +47,9 @@ parser.add_argument( '--generatorinnerdim', type=int, default="128" )
 parser.add_argument( '--generatorleakrate', type=float, default="0.0" )
 parser.add_argument( '--generatordropoutrate', type=float, default="0.0" )
 
+parser.add_argument( '--begincritictrainperit', type=int, default="10" )
+parser.add_argument( '--endcritictrainperit',   type=int, default="20" )
+
 parser.add_argument( '--inputvars', type=str, nargs='+',
                      default = [  'TrackP', 'TrackPt'
                                  ,'NumRich1Hits', 'NumRich2Hits'
@@ -65,18 +68,40 @@ parser.set_defaults(debug=False)
 args,unparsed = parser.parse_known_args()
 print( "Job arguments", args )
 
-MODEL_NAME = args.name
+# Build full name from options
+MODEL_NAME = ""
+if args.name != "" : MODEL_NAME = args.name + "-"
+name_map = {  'TrackP'           : 'P'
+             ,'TrackPt'          : 'Pt'
+             ,'NumRich1Hits'     : 'R1H'
+             ,'NumRich2Hits'     : 'R2H'
+             ,'TrackRich1EntryX' : 'R1EnX'
+             ,'TrackRich1EntryY' : 'R1EnY'
+             ,'TrackRich1ExitX'  : 'R1ExX'
+             ,'TrackRich1ExitY'  : 'R1ExY'
+             ,'TrackRich2EntryX' : 'R2EnX'
+             ,'TrackRich2EntryY' : 'R2EnY'
+             ,'TrackRich2ExitX'  : 'R2ExX'
+             ,'TrackRich2ExitY'  : 'R2ExY'
+           }
+for i in args.inputvars : MODEL_NAME += name_map[i]
 if args.criticdropoutrate    > 0 : MODEL_NAME += "-CrtDrop"+str(args.criticdropoutrate)
 if args.criticleakrate       > 0 : MODEL_NAME += "-CrtLeak"+str(args.criticleakrate)
+MODEL_NAME += "-CriInnerD" + str(args.criticinnerdim)
+MODEL_NAME += "-CriNL"  + str(args.ncriticlayers)
+MODEL_NAME += "-CramerD"+ str(args.cramerdim)
+MODEL_NAME += "-NoiseD" + str(args.noisedims)
 if args.generatordropoutrate > 0 : MODEL_NAME += "-GenDrop"+str(args.generatordropoutrate)
 if args.generatorleakrate    > 0 : MODEL_NAME += "-GenLeak"+str(args.generatorleakrate)
+MODEL_NAME += "-GenInnerD" + str(args.generatorinnerdim)
+MODEL_NAME += "-GenNL"  + str(args.ngeneratorlayers)
+print( "Model Name", MODEL_NAME )
 
-if args.debug :
-  os.environ["CUDA_VISIBLE_DEVICES"]="-1"
-
+# first line must be before tensorflow import
+if args.debug : os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 import tensorflow as tf
-
 tf.reset_default_graph()
+
 # debugging
 if args.debug : sess = tf.InteractiveSession()
 
@@ -87,9 +112,6 @@ tf.set_random_seed(RNDM_SEED)
 
 # number outputs from generator
 output_dim = len(args.outputvars)
-
-# Total input dimensions of generator (including noise)
-GENERATOR_DIMENSIONS = args.noisedims + len(args.inputvars)
 
 with tf.device('/cpu:0'):
 
@@ -162,9 +184,11 @@ with tf.device('/cpu:0'):
             if args.criticdropoutrate > 0 : 
               critic_i.add( keras.layers.Dropout(args.criticdropoutrate) )
           critic_i.add( keras.layers.Dense(args.cramerdim) )
-          critic_i.summary()
+          if args.debug : critic_i.summary()
           gpu_critics.append(critic_i)
     
+          # Total input dimensions of generator (including noise)
+          GENERATOR_DIMENSIONS = args.noisedims + len(args.inputvars)
           print( "Building Generator, #inputs=", GENERATOR_DIMENSIONS )
           generator_i = keras.models.Sequential()
           generator_i.add( keras.layers.InputLayer( [GENERATOR_DIMENSIONS] ) )
@@ -175,7 +199,7 @@ with tf.device('/cpu:0'):
             if args.generatordropoutrate > 0 : 
               generator_i.add( keras.layers.Dropout(args.generatordropoutrate) )
           generator_i.add( keras.layers.Dense(output_dim) )
-          generator_i.summary()
+          if args.debug : generator_i.summary()
           gpu_generators.append(generator_i)
      
           # Create tensor data iterators
@@ -354,8 +378,8 @@ with tf.device('/cpu:0'):
   print ( "Output dir", plots_dir )
 
   # Make some input / output plots
-  RICH.plots1( "output_raw",  data_raw[0][args.outputvars],   plots_dir )
-  RICH.plots1( "inputs_raw",  data_raw[0][args.inputvars],    plots_dir )
+  RICH.plots1( "output_raw ",  data_raw[0][args.outputvars],   plots_dir )
+  RICH.plots1( "inputs_raw ",  data_raw[0][args.inputvars],    plots_dir )
   RICH.plots1( "output_norm", data_train[0][args.outputvars], plots_dir )
   RICH.plots1( "inputs_norm", data_train[0][args.inputvars],  plots_dir )
 
@@ -364,17 +388,14 @@ with tf.device('/cpu:0'):
   var_init_glo       = tf.global_variables_initializer()
   var_init_loc       = tf.local_variables_initializer()
   weights_saver      = tf.train.Saver( name = args.name, max_to_keep = 3 )  
-  MODEL_WEIGHTS_FILE = dirs["weights"]+"%s.ckpt" % MODEL_NAME
+  MODEL_WEIGHTS_FILE = dirs["weights"]+"model-weights.ckpt"
   train_writer       = tf.summary.FileWriter(os.path.join(dirs["summary"],"train"))
   test_writer        = tf.summary.FileWriter(os.path.join(dirs["summary"],"test"))
-
-  # functor to give the number of training runs per iteration
-  critic_policy = RICH.critic_policy(args.niterations)
 
   # Configuration
   tf_config = tf.ConfigProto( gpu_options = tf.GPUOptions(allow_growth=False),
                               allow_soft_placement = True,
-                              log_device_placement = True,
+                              log_device_placement = args.debug,
                               intra_op_parallelism_threads = 16,
                               inter_op_parallelism_threads = 16 )
 
@@ -384,13 +405,20 @@ with tf.device('/cpu:0'):
   # if debug, abort before starting training..
   if args.debug : sys.exit(0)
 
+  # functor to give the number of training runs per iteration
+  def create_critic_policy():
+    scale_f = ( args.endcritictrainperit - args.begincritictrainperit ) / args.niterations
+    critic_policy = lambda i: int( round( args.begincritictrainperit + ( scale_f * (i-1) ) ) )
+    return critic_policy
+  critic_policy = create_critic_policy()
+
 # Start the session ....
 with tf.Session(config=tf_config) as sess:
 
   # Initialise
   sess.run(var_init_loc)
   sess.run(var_init_glo)
-  
+
   # Try and restore a saved weights file
   try:
     weights_saver.restore( sess, MODEL_WEIGHTS_FILE )

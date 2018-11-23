@@ -4,14 +4,6 @@ import numpy as np
 import pandas as pd
 import tensorflow as tf
 
-def critic_policy(TOTAL_ITERATIONS):
-    # functor to give the number of training runs per iteration
-    CRITIC_ITERATIONS_CONST = 15
-    CRITIC_ITERATIONS_VAR   = 0
-    critic_policy = lambda i: (
-        CRITIC_ITERATIONS_CONST + (CRITIC_ITERATIONS_VAR * (TOTAL_ITERATIONS - i)) // TOTAL_ITERATIONS )
-    return critic_policy
-
 def splitDataFrame( data, nsplits ) :
     splits = np.array_split( data, nsplits )
     return [ pd.DataFrame( s, columns = data.columns, dtype=np.float32 ) for s in splits ]
