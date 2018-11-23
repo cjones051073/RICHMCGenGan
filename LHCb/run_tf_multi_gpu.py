@@ -438,8 +438,11 @@ with tf.Session(config=tf_config) as sess:
       it_dir = dirs["iterations"]+str( '%06d' % i )+"/"
       if not os.path.exists(it_dir) : os.makedirs(it_dir)
 
-      test_summary, test_generated = sess.run( [ merged_summary,
-                                                 generated_dlls[0] ], {
+      test_summary, test_generated, _, _, _ = sess.run( [ merged_summary,
+                                                          generated_dlls[0],
+                                                          critic_acc, 
+                                                          critic_loss,
+                                                          generator_loss ], {
         train_full[0]  : validation_np[0].values,
         train_full[1]  : validation_np[1].values,
         train_phys[0]  : validation_np[0].values[:,output_dim:],
