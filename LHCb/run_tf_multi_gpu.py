@@ -113,6 +113,10 @@ tf.set_random_seed(RNDM_SEED)
 # number outputs from generator
 output_dim = len(args.outputvars)
 
+# remove NaNs etc. from a tensor
+def cleanTensor( t ):
+  return tf.where( tf.is_finite(t), t, tf.zeros_like(t) )
+
 with tf.device('/cpu:0'):
 
   # global step 
@@ -158,8 +162,6 @@ with tf.device('/cpu:0'):
   # save the generator and critics
   gpu_critics    = [ ]
   gpu_generators = [ ]
-  # accuracy ops
-  gen_acc_ops    = [ ]
 
   with tf.variable_scope(tf.get_variable_scope()):
     for igpu in range(args.ngpus):
@@ -238,7 +240,7 @@ with tf.device('/cpu:0'):
             generator_inputs.append( tf.concat([train_noise[-1],train_phys[-1]], axis=1) )
 
             # generated output
-            generated_dlls.append( generator_i( generator_inputs[-1] ) )
+            generated_dlls.append( cleanTensor( generator_i( generator_inputs[-1] ) ) )
 
             # generated input to critic
             gen_critic_input.append( tf.concat([generated_dlls[-1],train_phys[-1]], axis=1) )
@@ -254,8 +256,8 @@ with tf.device('/cpu:0'):
               print( "gen critic input", gen_critic_input[-1].shape )
 
           def cramer_critic( x, y ):
-            discriminated_x = critic_i(x)
-            discriminated_y = critic_i(y)
+            discriminated_x = cleanTensor( critic_i(x) )
+            discriminated_y = cleanTensor( critic_i(y) )
             return tf.norm( discriminated_x - discriminated_y, axis=1 ) - tf.norm( discriminated_x, axis=1 )
   
           # loss function for generator network (when weights are all 1)
@@ -273,7 +275,7 @@ with tf.device('/cpu:0'):
           tf_iter         = tf.Variable(initial_value=0, dtype=tf.int32)
           lambda_tf       = 20 / np.pi * 2 * tf.atan(tf.cast(tf_iter,tf.float32)/1e4)
           critic_loss     = lambda_tf*gradient_penalty - generator_loss
-          learning_rate   = tf.train.exponential_decay( 2e-3, tf_iter, 200, 0.985 )
+          learning_rate   = tf.train.exponential_decay( 1e-3, tf_iter, 200, 0.98 )
           
           optimizer       = tf.train.RMSPropOptimizer(learning_rate)
           #optimizer       = tf.train.AdamOptimizer(learning_rate)
@@ -295,28 +297,24 @@ with tf.device('/cpu:0'):
             print("gradient_penalty", gradient_penalty.shape )
 
           # compute diff between target and trained generator output
-          target_diff = generated_dlls[0] - target_dlls[0]
+          target_diff = tf.subtract( generated_dlls[0] , target_dlls[0] )
           if args.debug :
             print( "target_diff\n", target_diff.shape )
 
           # generator accuracy
-          gen_acc, gen_acc_op = tf.metrics.accuracy( tf.argmax(generated_dlls[0],1) , 
-                                                     tf.argmax(target_dlls[0]   ,1) )
-          gen_acc_ops.append( gen_acc_op )
           dll_equal = tf.equal( tf.argmax(generated_dlls[0],1) , 
                                 tf.argmax(target_dlls[0]   ,1) )
-          gen_acc_2 = tf.reduce_mean( tf.cast(dll_equal,tf.float32) )
+          gen_acc   = tf.reduce_mean( tf.cast(dll_equal,tf.float32) )
           # critic accuracy
-          cramer_equal = tf.equal( tf.argmax( critic_i(train_full[0])       , 1 ) ,
-                                   tf.argmax( critic_i(gen_critic_input[0]) , 1 ) )
+          cramer_equal = tf.equal( tf.argmax( cleanTensor(critic_i(train_full[0]))       , 1 ) ,
+                                   tf.argmax( cleanTensor(critic_i(gen_critic_input[0])) , 1 ) )
           critic_acc = tf.reduce_mean( tf.cast(cramer_equal,tf.float32) )
           
-          tf.summary.scalar("Critic_Loss",        tf.reshape(critic_loss,[]) )
-          tf.summary.scalar("Generator_Loss",     tf.reshape(generator_loss,[]) )
-          tf.summary.scalar("Learning_Rate",      learning_rate )
-          tf.summary.scalar("Lambda",             lambda_tf )
-          tf.summary.scalar("Generator_Accuracy_1", gen_acc )
-          tf.summary.scalar("Generator_Accuracy_2", gen_acc_2 )
+          tf.summary.scalar("Critic_Loss",          tf.reshape(critic_loss,[]) )
+          tf.summary.scalar("Generator_Loss",       tf.reshape(generator_loss,[]) )
+          tf.summary.scalar("Learning_Rate",        learning_rate )
+          tf.summary.scalar("Lambda",               lambda_tf )
+          tf.summary.scalar("Generator_Accuracy",   gen_acc )
           tf.summary.scalar("Critic_Accuracy",      critic_acc )
           # Add histograms for generated output
           for iname in range(output_dim) :
@@ -342,7 +340,7 @@ with tf.device('/cpu:0'):
         # create average weight
         w = models[0].trainable_weights[iw]
         for ii in range(1,args.ngpus) :
-          w = tf.math.add( w, models[ii].trainable_weights[iw] )
+          w = tf.math.add( w, cleanTensor( models[ii].trainable_weights[iw] ) )
         w /= np.float32(args.ngpus)
 
         # assign to each model
@@ -378,8 +376,8 @@ with tf.device('/cpu:0'):
   print ( "Output dir", plots_dir )
 
   # Make some input / output plots
-  RICH.plots1( "output_raw ",  data_raw[0][args.outputvars],   plots_dir )
-  RICH.plots1( "inputs_raw ",  data_raw[0][args.inputvars],    plots_dir )
+  RICH.plots1( "output_raw ", data_raw[0][args.outputvars],   plots_dir )
+  RICH.plots1( "inputs_raw ", data_raw[0][args.inputvars],    plots_dir )
   RICH.plots1( "output_norm", data_train[0][args.outputvars], plots_dir )
   RICH.plots1( "inputs_norm", data_train[0][args.inputvars],  plots_dir )
 
@@ -439,14 +437,14 @@ with tf.Session(config=tf_config) as sess:
 
     if args.debug : print( "Start training" )
     for j in range(critic_policy(i)) : sess.run( gpu_critic_ops )
-    sess.run( gpu_gen_ops + gen_acc_ops + [ increment_global_step_op ] )
-    train_summary = sess.run( merged_summary )
+    sess.run( gpu_gen_ops + [ increment_global_step_op ] )
     if args.debug : print( "Finish training" )
    
     # write the summary data at given rate
     if i % args.trainwriteinterval == 0 :
       
       if args.debug : print( "Start train write" )
+      train_summary = sess.run( merged_summary )
       train_writer.add_summary( train_summary, g_it )
       if args.debug : print( "Finish train write" )
    
