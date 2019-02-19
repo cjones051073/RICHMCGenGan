@@ -19,16 +19,22 @@ RichDLLbt > -900
 
 # RICH thresholds
 RichAbovePiThres > 0.5
+( RichUsedR1Gas && TrackP > 2800 ) || ( RichUsedR2Gas && TrackP > 4700 )
+RichDLLe  != 0.0
+RichDLLmu != 0.0
+RichDLLk  != 0.0
+RichDLLp  != 0.0
+RichDLLd  != 0.0
+RichDLLbt != 0.0
 
 # Only take MC types we are looking to simulate
 #abs(MCParticleType) == 0 || abs(MCParticleType) == 11 || abs(MCParticleType) == 13 || abs(MCParticleType) == 211 || abs(MCParticleType) == 321 || abs(MCParticleType) == 2212 || abs(MCParticleType) == 1000010020
-
 
 # Electrons only
 #abs(MCParticleType) == 11
 # Muons only
 #abs(MCParticleType) == 13
 # Pion only
-abs(MCParticleType) == 211
+#abs(MCParticleType) == 211
 # kaon only
-#abs(MCParticleType) == 321
+abs(MCParticleType) == 321
