@@ -50,6 +50,9 @@ parser.add_argument( '--generatordropoutrate', type=float, default="0.0" )
 parser.add_argument( '--begincritictrainperit', type=int, default="10" )
 parser.add_argument( '--endcritictrainperit',   type=int, default="20" )
 
+parser.add_argument( '--startlearnrate', type=float, default="0.001" )
+parser.add_argument( '--learnratedecayfactor', type=float, default="0.98" )
+
 parser.add_argument( '--inputvars', type=str, nargs='+',
                      default = [  'TrackP', 'TrackPt'
                                  ,'NumRich1Hits', 'NumRich2Hits'
@@ -95,6 +98,8 @@ if args.generatordropoutrate > 0 : MODEL_NAME += "-GenDrop"+str(args.generatordr
 if args.generatorleakrate    > 0 : MODEL_NAME += "-GenLeak"+str(args.generatorleakrate)
 MODEL_NAME += "-GenInnerD" + str(args.generatorinnerdim)
 MODEL_NAME += "-GenNL"  + str(args.ngeneratorlayers)
+MODEL_NAME += "-StLRate"  + str(args.startlearnrate)
+MODEL_NAME += "-LRateDecF"  + str(args.learnratedecayfactor)
 print( "Model Name", MODEL_NAME )
 
 # first line must be before tensorflow import
@@ -188,7 +193,7 @@ with tf.device('/cpu:0'):
           critic_i.add( keras.layers.Dense(args.cramerdim) )
           if args.debug : critic_i.summary()
           gpu_critics.append(critic_i)
-    
+
           # Total input dimensions of generator (including noise)
           GENERATOR_DIMENSIONS = args.noisedims + len(args.inputvars)
           print( "Building Generator, #inputs=", GENERATOR_DIMENSIONS )
@@ -275,7 +280,9 @@ with tf.device('/cpu:0'):
           tf_iter         = tf.Variable(initial_value=0, dtype=tf.int32)
           lambda_tf       = 20 / np.pi * 2 * tf.atan(tf.cast(tf_iter,tf.float32)/1e4)
           critic_loss     = lambda_tf*gradient_penalty - generator_loss
-          learning_rate   = tf.train.exponential_decay( 1e-3, tf_iter, 200, 0.98 )
+          learning_rate   = tf.train.exponential_decay( args.startlearnrate, 
+                                                        tf_iter, 200, 
+                                                        args.learnratedecayfactor )
           
           optimizer       = tf.train.RMSPropOptimizer(learning_rate)
           #optimizer       = tf.train.AdamOptimizer(learning_rate)
@@ -491,6 +498,11 @@ with tf.Session(config=tf_config) as sess:
       RICH.plot2( "RawDLLs", 
                   [ validation_np_raw[args.outputvars].values, test_generated_raw ],
                   args.outputvars, ['Target','Generated'], it_dir )
+
+      # DLL diffs
+      dll_diffs = np.subtract( test_generated, validation_np[0][args.outputvars].values )
+      RICH.plot2( "DeltaDLLs", [ dll_diffs ],
+                  args.outputvars, ['Delta(Generated-Target)'], it_dir )
       
       # DLL correlations
       RICH.outputCorrs( "correlations", test_generated, validation_np[0][args.outputvars].values,

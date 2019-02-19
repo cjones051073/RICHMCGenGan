@@ -103,7 +103,7 @@ def plot2( title, data, names, label=['Target','Generated'], dir = 'plots/' ):
                   histtype='stepfilled', label=label ) 
         plt.grid(True)
         plt.title(title+" "+names[INDEX])
-    plt.legend()
+        plt.legend()
     plt.tight_layout()
     plt.savefig(dir+title+".png")
     plt.close()
