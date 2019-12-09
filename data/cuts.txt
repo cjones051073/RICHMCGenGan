@@ -35,6 +35,6 @@ RichDLLbt != 0.0
 # Muons only
 #abs(MCParticleType) == 13
 # Pion only
-#abs(MCParticleType) == 211
+abs(MCParticleType) == 211
 # kaon only
-abs(MCParticleType) == 321
+#abs(MCParticleType) == 321

@@ -22,7 +22,7 @@ def outputDirs( dir, clear = True ) :
             if os.path.exists(dirs[name]) : shutil.rmtree(dirs[name]) 
     return dirs
 
-def convertCSVtoHDF( infile, outfile ) :
+def convertCSVtoHDF( infile, outfile, type = 'KAONS' ) :
 
     data = pd.read_csv( infile, delim_whitespace = True )
     data = data.astype( np.float32 )

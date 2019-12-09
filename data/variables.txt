@@ -37,6 +37,16 @@ TrackRich2ExitX ; D ; max( -7000, min( TrackRich2ExitX, 7000 ) )
 TrackRich2ExitY ; D ; max( -5000, min( TrackRich2ExitY, 5000 ) )
 TrackRich2ExitZ ; D ; TrackRich2ExitZ
 
+UsedRich1Gas ; I ; RichUsedR1Gas
+UsedRich2Gas ; I ; RichUsedR2Gas
+
+AboveElThres ; I ; RichAboveElThres
+AboveMuThres ; I ; RichAboveMuThres
+AbovePiThres ; I ; RichAbovePiThres
+AboveKaThres ; I ; RichAboveKaThres
+AbovePrThres ; I ; RichAbovePrThres
+AboveDeThres ; I ; RichAboveDeThres
+
 RichDLLe ; D ; RichDLLe
 RichDLLmu ; D ; RichDLLmu
 RichDLLk ; D ; RichDLLk
